@@ -20,7 +20,7 @@ class WebSocketService {
   private disconnectHandlers: Set<ConnectionHandler> = new Set();
   private errorHandlers: Set<ErrorHandler> = new Set();
 
-  connect(token: string): Promise<void> {
+  connect(token: string, timeout: number = 10000): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         resolve();
@@ -30,7 +30,24 @@ class WebSocketService {
       const url = `${WS_BASE_URL}/ws/voice?token=${token}`;
       this.ws = new WebSocket(url);
 
+      let timeoutId: NodeJS.Timeout | null = null;
+      let isResolved = false;
+
+      // Set connection timeout
+      timeoutId = setTimeout(() => {
+        if (!isResolved && this.ws) {
+          isResolved = true;
+          console.error('❌ WebSocket connection timeout');
+          this.ws.close();
+          const error = new Error(`Connection timeout after ${timeout}ms. Check if backend server is running at ${WS_BASE_URL}`);
+          this.errorHandlers.forEach(handler => handler(error));
+          reject(error);
+        }
+      }, timeout);
+
       this.ws.onopen = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        isResolved = true;
         console.log('✅ WebSocket connected to:', url);
         this.reconnectAttempts = 0;
         this.startPingInterval();
@@ -39,19 +56,32 @@ class WebSocketService {
       };
 
       this.ws.onclose = (event: CloseEvent) => {
+        if (timeoutId) clearTimeout(timeoutId);
         console.log('❌ WebSocket closed:', event.code, event.reason);
         this.stopPingInterval();
         this.disconnectHandlers.forEach(handler => handler());
-        this.attemptReconnect(token);
+
+        // Only attempt reconnect if this wasn't a deliberate close
+        if (!isResolved && event.code !== 1000) {
+          isResolved = true;
+          reject(new Error(`Connection closed: ${event.reason || 'Unknown reason'}`));
+        } else {
+          this.attemptReconnect(token);
+        }
       };
 
       this.ws.onerror = (event: Event) => {
+        if (timeoutId) clearTimeout(timeoutId);
         console.error('❌ WebSocket error event:', event);
         console.error('❌ Failed to connect to:', url);
-        console.error('❌ Make sure Railway supports WebSocket connections');
-        const error = new Error(`WebSocket connection failed to ${url}`);
-        this.errorHandlers.forEach(handler => handler(error));
-        reject(error);
+        console.error('❌ Check if backend server is running');
+
+        if (!isResolved) {
+          isResolved = true;
+          const error = new Error(`Cannot connect to ${WS_BASE_URL}. Is the backend server running?`);
+          this.errorHandlers.forEach(handler => handler(error));
+          reject(error);
+        }
       };
 
       this.ws.onmessage = (event) => {

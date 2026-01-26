@@ -107,7 +107,9 @@ export function useVoice(): UseVoiceReturn {
     const token = await SecureStore.getItemAsync('accessToken');
     console.log('📡 Retrieved token:', token ? `${token.substring(0, 20)}...` : 'null');
     if (!token) {
-      throw new Error('Not authenticated - please log in again');
+      const error = 'Not authenticated - please log in again';
+      setState(prev => ({ ...prev, error, isConnecting: false }));
+      throw new Error(error);
     }
 
     console.log('📡 Attempting WebSocket connection...');
@@ -118,6 +120,13 @@ export function useVoice(): UseVoiceReturn {
       console.log('✅ WebSocket connected successfully');
     } catch (error) {
       console.error('❌ WebSocket connection failed:', error);
+      const message = error instanceof Error ? error.message : 'Failed to connect to server';
+      setState(prev => ({
+        ...prev,
+        isConnecting: false,
+        isConnected: false,
+        error: message
+      }));
       throw error;
     }
   }, []);
