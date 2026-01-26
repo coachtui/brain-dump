@@ -12,6 +12,8 @@ import {
 } from '../screens';
 import GeofencesScreen from '../screens/GeofencesScreen';
 import CreateGeofenceScreen from '../screens/CreateGeofenceScreen';
+import SearchScreen from '../screens/SearchScreen';
+import AIQueryScreen from '../screens/AIQueryScreen';
 import { RootStackParamList } from './types';
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
 
@@ -49,6 +51,8 @@ function MainStack() {
         component={CreateGeofenceScreen}
         options={{ headerShown: true, title: 'Create Geofence' }}
       />
+      <Stack.Screen name="Search" component={SearchScreen} />
+      <Stack.Screen name="AIQuery" component={AIQueryScreen} />
     </Stack.Navigator>
   );
 }

@@ -15,7 +15,8 @@
     "migrate:down": "node-pg-migrate down",
     "migrate:create": "node-pg-migrate create",
     "migrate:status": "node-pg-migrate status",
-    "db:setup": "npm run migrate"
+    "db:setup": "npm run migrate",
+    "generate-embeddings": "tsx src/scripts/generate-embeddings.ts"
   },
   "keywords": [
     "brain-dump",
