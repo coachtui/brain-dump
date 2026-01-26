@@ -49,7 +49,7 @@ export async function storeInVector(object: AtomicObject): Promise<void> {
   const embedding = await generateEmbedding(object.content);
 
   // Extract entity values for easier searching
-  const entityValues = object.metadata.entities.map((e) => e.value);
+  const entityValues = (Array.isArray(object.metadata.entities) ? object.metadata.entities : []).map((e) => e.value);
 
   // Prepare data object
   const dataObject = {
@@ -111,7 +111,7 @@ export async function updateInVector(object: AtomicObject): Promise<void> {
     const embedding = await generateEmbedding(object.content);
 
     // Extract entity values
-    const entityValues = object.metadata.entities.map((e) => e.value);
+    const entityValues = (Array.isArray(object.metadata.entities) ? object.metadata.entities : []).map((e) => e.value);
 
     // Update the object
     await client.data

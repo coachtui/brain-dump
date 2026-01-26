@@ -73,6 +73,45 @@ export function HomeScreen({ navigation }: Props) {
               Browse your extracted thoughts and ideas
             </Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => navigation.navigate('Search')}
+          >
+            <View style={styles.actionIcon}>
+              <Text style={styles.actionIconText}>🔍</Text>
+            </View>
+            <Text style={styles.actionTitle}>Semantic Search</Text>
+            <Text style={styles.actionDescription}>
+              Find objects using natural language queries
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => navigation.navigate('AIQuery')}
+          >
+            <View style={styles.actionIcon}>
+              <Text style={styles.actionIconText}>🤖</Text>
+            </View>
+            <Text style={styles.actionTitle}>AI Sparring</Text>
+            <Text style={styles.actionDescription}>
+              Ask questions about your thoughts and get AI answers
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => navigation.navigate('Geofences')}
+          >
+            <View style={styles.actionIcon}>
+              <Text style={styles.actionIconText}>📍</Text>
+            </View>
+            <Text style={styles.actionTitle}>Geofences</Text>
+            <Text style={styles.actionDescription}>
+              Manage location-based reminders
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     </SafeAreaView>
