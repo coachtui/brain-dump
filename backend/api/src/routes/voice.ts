@@ -1,18 +1,14 @@
 /**
  * Voice session API routes
+ * Uses Deepgram for real-time transcription (mobile connects directly to Deepgram)
  */
 
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../auth/middleware';
-import {
-  startSession,
-  stopSession,
-  getSessionStatus,
-  listUserSessions,
-  isSessionActive,
-} from '../services/voiceSessionService';
-import { getAudioUrl, getSessionStorageStats } from '../services/storageService';
+import { parseTranscript, checkMLServiceHealth } from '../services/mlService';
+import { createObject } from '../services/objectService';
+import { Session } from '../models/Session';
 
 const router = Router();
 
@@ -20,8 +16,9 @@ const router = Router();
 router.use(authenticate);
 
 // Validation schemas
-const startSessionSchema = z.object({
-  deviceId: z.string().min(1, 'Device ID is required'),
+const saveTranscriptSchema = z.object({
+  transcript: z.string().min(1, 'Transcript is required'),
+  duration: z.number().optional(),
   location: z
     .object({
       latitude: z.number(),
@@ -34,17 +31,61 @@ const startSessionSchema = z.object({
 });
 
 /**
- * POST /api/v1/voice/sessions - Start a new voice session
- * Note: For real-time streaming, use WebSocket instead
+ * GET /api/v1/voice/deepgram-token - Get temporary Deepgram API token
+ * Mobile app uses this to connect directly to Deepgram for real-time transcription
  */
-router.post('/sessions', async (req: Request, res: Response) => {
+router.get('/deepgram-token', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const validationResult = startSessionSchema.safeParse(req.body);
+    const apiKey = process.env.DEEPGRAM_API_KEY;
+    if (!apiKey) {
+      console.error('DEEPGRAM_API_KEY not configured');
+      return res.status(500).json({ error: 'Deepgram not configured' });
+    }
+
+    // Request a temporary token from Deepgram (60 seconds to connect)
+    const response = await fetch('https://api.deepgram.com/v1/auth/token', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Token ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ time_to_live: 60 }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Deepgram token error:', errorText);
+      return res.status(500).json({ error: 'Failed to get Deepgram token' });
+    }
+
+    const data = await response.json() as { token: string };
+    res.json({ token: data.token });
+  } catch (error) {
+    console.error('Error getting Deepgram token:', error);
+    res.status(500).json({
+      error: 'Failed to get Deepgram token',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * POST /api/v1/voice/save-transcript - Save transcript and create atomic objects
+ * Called after recording stops with the final transcript from Deepgram
+ */
+router.post('/save-transcript', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const validationResult = saveTranscriptSchema.safeParse(req.body);
     if (!validationResult.success) {
       return res.status(400).json({
         error: 'Validation failed',
@@ -52,23 +93,89 @@ router.post('/sessions', async (req: Request, res: Response) => {
       });
     }
 
-    const { deviceId, location, metadata } = validationResult.data;
+    const { transcript, duration, location, metadata } = validationResult.data;
 
-    const session = await startSession(userId, {
-      deviceId,
-      location,
-      metadata,
+    // Type-safe location (zod ensures latitude/longitude exist if location is present)
+    const geoLocation = location ? {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      accuracy: location.accuracy,
+      altitude: location.altitude,
+    } : undefined;
+
+    // Create a session record
+    const session = await Session.create({
+      userId,
+      deviceId: 'mobile-deepgram',
+      location: geoLocation,
+      metadata: { ...metadata, duration, transcriptionMethod: 'deepgram' },
     });
 
-    res.status(201).json({
-      session: session.toVoiceSession(),
-      message: 'Session started. Use WebSocket for audio streaming.',
-      websocketUrl: `/ws/voice?token=YOUR_JWT_TOKEN`,
+    // Parse transcript and create atomic objects
+    const objectIds: string[] = [];
+
+    if (transcript.trim()) {
+      const mlAvailable = await checkMLServiceHealth();
+
+      if (mlAvailable) {
+        // Use ML service to parse transcript into atomic objects
+        const parseResult = await parseTranscript({
+          transcript,
+          userId,
+          sessionId: session.id,
+          location: geoLocation,
+          timestamp: new Date(),
+        });
+
+        for (const parsedObject of parseResult.atomicObjects) {
+          const object = await createObject(userId, {
+            content: parsedObject.content,
+            category: parsedObject.category,
+            source: {
+              type: 'voice',
+              recordingId: session.id,
+              location: geoLocation,
+            },
+            metadata: {
+              tags: parsedObject.tags,
+              urgency: parsedObject.urgency,
+            },
+          });
+          objectIds.push(object.id);
+        }
+      } else {
+        // Fallback: create single object with full transcript
+        const object = await createObject(userId, {
+          content: transcript,
+          source: {
+            type: 'voice',
+            recordingId: session.id,
+            location: geoLocation,
+          },
+        });
+        objectIds.push(object.id);
+      }
+    }
+
+    // Update session as completed
+    await session.update({
+      status: 'completed',
+      metadata: {
+        ...session.metadata,
+        transcript,
+        objectIds,
+      },
+    });
+
+    res.json({
+      sessionId: session.id,
+      objectIds,
+      objectCount: objectIds.length,
     });
   } catch (error) {
-    console.error('Error starting session:', error);
+    console.error('Error saving transcript:', error);
     res.status(500).json({
-      error: 'Failed to start session',
+      error: 'Failed to save transcript',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }
@@ -93,7 +200,7 @@ router.get('/sessions', async (req: Request, res: Response) => {
       ? (status as 'recording' | 'processing' | 'completed' | 'failed')
       : undefined;
 
-    const result = await listUserSessions(userId, {
+    const result = await Session.findByUserId(userId, {
       status: statusFilter,
       limit,
       offset,
@@ -115,7 +222,7 @@ router.get('/sessions', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/voice/sessions/:id - Get session status
+ * GET /api/v1/voice/sessions/:id - Get session details
  */
 router.get('/sessions/:id', async (req: Request, res: Response) => {
   try {
@@ -125,159 +232,27 @@ router.get('/sessions/:id', async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
+    const session = await Session.findById(id);
 
-    const status = await getSessionStatus(id);
-
-    // Verify ownership
-    if (status.session.userId !== userId) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    res.json({
-      session: status.session.toVoiceSession(),
-      isActive: status.isActive,
-      currentTranscript: status.currentTranscript,
-      chunkCount: status.chunkCount,
-      duration: status.duration,
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Session not found') {
+    if (!session) {
       return res.status(404).json({ error: 'Session not found' });
     }
-    console.error('Error getting session status:', error);
-    res.status(500).json({
-      error: 'Failed to get session status',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * POST /api/v1/voice/sessions/:id/stop - Stop a voice session
- */
-router.post('/sessions/:id/stop', async (req: Request, res: Response) => {
-  try {
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const { id } = req.params;
-
-    // Check if session exists and is active
-    if (!isSessionActive(id)) {
-      // Try to get session to check ownership
-      const status = await getSessionStatus(id);
-      if (status.session.userId !== userId) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-      return res.status(400).json({ error: 'Session is not active' });
-    }
-
-    const result = await stopSession(id);
 
     // Verify ownership
-    if (result.session.userId !== userId) {
+    if (session.userId !== userId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
     res.json({
-      session: result.session.toVoiceSession(),
-      transcript: result.transcript,
-      audioUrl: result.audioUrl,
-      objectId: result.objectId,
+      session: session.toVoiceSession(),
     });
   } catch (error) {
-    console.error('Error stopping session:', error);
+    console.error('Error getting session:', error);
     res.status(500).json({
-      error: 'Failed to stop session',
+      error: 'Failed to get session',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
-
-/**
- * GET /api/v1/voice/sessions/:id/audio - Get audio playback URL
- */
-router.get('/sessions/:id/audio', async (req: Request, res: Response) => {
-  try {
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const { id } = req.params;
-    const expiry = parseInt(req.query.expiry as string) || 3600;
-
-    // Get session to verify ownership
-    const status = await getSessionStatus(id);
-    if (status.session.userId !== userId) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    if (status.isActive) {
-      return res.status(400).json({ error: 'Session is still recording' });
-    }
-
-    const audioUrl = await getAudioUrl(id, expiry);
-
-    res.json({
-      audioUrl,
-      expiresIn: expiry,
-    });
-  } catch (error) {
-    console.error('Error getting audio URL:', error);
-    res.status(500).json({
-      error: 'Failed to get audio URL',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * GET /api/v1/voice/sessions/:id/stats - Get session storage stats
- */
-router.get('/sessions/:id/stats', async (req: Request, res: Response) => {
-  try {
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const { id } = req.params;
-
-    // Get session to verify ownership
-    const status = await getSessionStatus(id);
-    if (status.session.userId !== userId) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const stats = await getSessionStorageStats(id);
-
-    res.json({
-      sessionId: id,
-      totalSize: stats.totalSize,
-      totalSizeFormatted: formatBytes(stats.totalSize),
-      chunkCount: stats.chunkCount,
-    });
-  } catch (error) {
-    console.error('Error getting session stats:', error);
-    res.status(500).json({
-      error: 'Failed to get session stats',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * Format bytes to human readable string
- */
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
 
 export default router;

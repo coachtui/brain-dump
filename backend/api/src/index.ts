@@ -8,16 +8,12 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
 import { testConnection, closePool } from './db/connection';
 import {
   testWeaviateConnection,
   initializeWeaviateSchema,
 } from './db/weaviate';
 import { initializeStorage, testStorageConnection } from './services/storageService';
-import { testWhisperConnection } from './services/transcriptionService';
-import { setupVoiceWebSocket } from './websocket/voiceHandler';
-import { cleanupAllSessions } from './services/voiceSessionService';
 
 // Load environment variables
 dotenv.config();
@@ -25,17 +21,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Create HTTP server for both Express and WebSocket
+// Create HTTP server
 const server = createServer(app);
-
-// Create WebSocket server
-const wss = new WebSocketServer({
-  server,
-  path: '/ws/voice',
-});
-
-// Set up voice WebSocket handlers
-setupVoiceWebSocket(wss);
 
 // Middleware
 app.use(helmet());
@@ -66,10 +53,6 @@ app.get('/health', async (req, res) => {
     database: dbConnected ? 'connected' : 'disconnected',
     vectorDb: weaviateConnected ? 'connected' : 'disconnected',
     storage: storageConnected ? 'connected' : 'disconnected',
-    websocket: {
-      clients: wss.clients.size,
-      path: '/ws/voice',
-    },
   });
 });
 
@@ -91,7 +74,7 @@ app.use('/api/v1/ai', aiRoutes);
 app.get('/api/v1', (req, res) => {
   res.json({
     message: 'The Hub API v1',
-    version: '0.3.0',
+    version: '0.4.0',
     endpoints: {
       health: '/health',
       auth: '/api/v1/auth',
@@ -100,9 +83,6 @@ app.get('/api/v1', (req, res) => {
       voice: '/api/v1/voice',
       search: '/api/v1/search',
       ai: '/api/v1/ai',
-    },
-    websocket: {
-      voice: '/ws/voice',
     },
   });
 });
@@ -133,12 +113,6 @@ app.use((req, res) => {
 async function gracefulShutdown() {
   console.log('Shutting down gracefully...');
 
-  // Stop accepting new connections
-  wss.close();
-
-  // Clean up active voice sessions
-  await cleanupAllSessions();
-
   // Close database connections
   await closePool();
 
@@ -152,7 +126,6 @@ process.on('SIGINT', gracefulShutdown);
 server.listen(PORT, async () => {
   console.log(`🚀 The Hub API server running on port ${PORT}`);
   console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔌 WebSocket endpoint: ws://localhost:${PORT}/ws/voice`);
 
   // Test database connection
   await testConnection();
@@ -181,6 +154,10 @@ server.listen(PORT, async () => {
     console.warn('⚠️  MinIO not available - audio storage will be disabled');
   }
 
-  // Test Whisper API
-  await testWhisperConnection();
+  // Check Deepgram API key
+  if (process.env.DEEPGRAM_API_KEY) {
+    console.log('✅ Deepgram API configured');
+  } else {
+    console.warn('⚠️  DEEPGRAM_API_KEY not set - voice transcription will not work');
+  }
 });

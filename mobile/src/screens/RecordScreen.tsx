@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useVoice } from '../hooks/useVoice';
+import { useDeepgramTranscription } from '../hooks/useDeepgramTranscription';
 import { RootStackParamList } from '../navigation/types';
 
 type RecordScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Record'>;
@@ -18,36 +18,70 @@ interface Props {
   navigation: RecordScreenNavigationProp;
 }
 
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 export function RecordScreen({ navigation }: Props) {
   const {
-    isRecording,
-    isConnected,
-    isConnecting,
-    transcripts,
+    status,
+    partialTranscript,
+    finalTranscript,
+    duration,
     error,
+    savedObjectIds,
     startRecording,
     stopRecording,
-    clearTranscripts,
-  } = useVoice();
+    reset,
+  } = useDeepgramTranscription();
+
+  const isRecording = status === 'recording';
+  const isConnecting = status === 'connecting';
+  const isProcessing = status === 'processing';
+  const isDone = status === 'done';
+  const hasTranscript = finalTranscript || partialTranscript;
 
   async function handleRecordPress() {
     if (isRecording) {
       await stopRecording();
-    } else {
+    } else if (status === 'idle' || status === 'done' || status === 'error') {
       await startRecording();
     }
   }
 
-  function getFullTranscript(): string {
-    return transcripts
-      .filter(t => !t.partial)
-      .map(t => t.text)
-      .join(' ');
+  function getStatusText(): string {
+    switch (status) {
+      case 'connecting':
+        return 'Connecting to Deepgram...';
+      case 'recording':
+        return `Recording ${formatDuration(duration)}`;
+      case 'processing':
+        return 'Saving...';
+      case 'done':
+        return savedObjectIds.length > 0
+          ? `Saved ${savedObjectIds.length} item${savedObjectIds.length > 1 ? 's' : ''}`
+          : 'Done';
+      case 'error':
+        return 'Error';
+      default:
+        return 'Ready';
+    }
   }
 
-  function getLatestPartial(): string {
-    const partial = transcripts.find(t => t.partial);
-    return partial?.text || '';
+  function getStatusColor(): string {
+    switch (status) {
+      case 'recording':
+        return '#22c55e';
+      case 'connecting':
+      case 'processing':
+        return '#f59e0b';
+      case 'error':
+        return '#ef4444';
+      default:
+        return '#888';
+    }
   }
 
   return (
@@ -58,8 +92,8 @@ export function RecordScreen({ navigation }: Props) {
         </TouchableOpacity>
         <Text style={styles.title}>Record</Text>
         <View style={styles.headerRight}>
-          {transcripts.length > 0 && (
-            <TouchableOpacity onPress={clearTranscripts}>
+          {(hasTranscript || isDone) && (
+            <TouchableOpacity onPress={reset}>
               <Text style={styles.clearButton}>Clear</Text>
             </TouchableOpacity>
           )}
@@ -70,38 +104,43 @@ export function RecordScreen({ navigation }: Props) {
         <View
           style={[
             styles.statusIndicator,
-            isConnected ? styles.statusConnected : styles.statusDisconnected,
+            { backgroundColor: getStatusColor() },
           ]}
         />
-        <Text style={styles.statusText}>
-          {isConnecting
-            ? 'Connecting...'
-            : isConnected
-            ? 'Connected'
-            : 'Disconnected'}
-        </Text>
+        <Text style={styles.statusText}>{getStatusText()}</Text>
       </View>
 
       <ScrollView
         style={styles.transcriptContainer}
         contentContainerStyle={styles.transcriptContent}
       >
-        {transcripts.length === 0 && !isRecording ? (
+        {!hasTranscript && status === 'idle' ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>
               Tap the record button to start capturing your thoughts
             </Text>
+            <Text style={styles.emptyStateSubtext}>
+              Real-time transcription powered by Deepgram
+            </Text>
           </View>
         ) : (
           <View>
-            <Text style={styles.transcriptText}>{getFullTranscript()}</Text>
-            {getLatestPartial() && (
-              <Text style={styles.partialText}>{getLatestPartial()}</Text>
+            {finalTranscript && (
+              <Text style={styles.transcriptText}>{finalTranscript}</Text>
             )}
-            {isRecording && (
+            {partialTranscript && (
+              <Text style={styles.partialText}>{partialTranscript}</Text>
+            )}
+            {isRecording && !partialTranscript && !finalTranscript && (
               <View style={styles.listeningIndicator}>
                 <ActivityIndicator size="small" color="#3b82f6" />
                 <Text style={styles.listeningText}>Listening...</Text>
+              </View>
+            )}
+            {isProcessing && (
+              <View style={styles.listeningIndicator}>
+                <ActivityIndicator size="small" color="#f59e0b" />
+                <Text style={styles.processingText}>Saving transcript...</Text>
               </View>
             )}
           </View>
@@ -121,9 +160,9 @@ export function RecordScreen({ navigation }: Props) {
             isRecording && styles.recordButtonActive,
           ]}
           onPress={handleRecordPress}
-          disabled={isConnecting}
+          disabled={isConnecting || isProcessing}
         >
-          {isConnecting ? (
+          {isConnecting || isProcessing ? (
             <ActivityIndicator size="large" color="#fff" />
           ) : (
             <View
@@ -135,7 +174,13 @@ export function RecordScreen({ navigation }: Props) {
           )}
         </TouchableOpacity>
         <Text style={styles.recordHint}>
-          {isRecording ? 'Tap to stop' : 'Tap to record'}
+          {isRecording
+            ? 'Tap to stop'
+            : isConnecting
+            ? 'Connecting...'
+            : isProcessing
+            ? 'Saving...'
+            : 'Tap to record'}
         </Text>
       </View>
     </SafeAreaView>
@@ -186,12 +231,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginRight: 8,
   },
-  statusConnected: {
-    backgroundColor: '#22c55e',
-  },
-  statusDisconnected: {
-    backgroundColor: '#ef4444',
-  },
   statusText: {
     color: '#888',
     fontSize: 12,
@@ -214,6 +253,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
   },
+  emptyStateSubtext: {
+    color: '#444',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 8,
+  },
   transcriptText: {
     color: '#fff',
     fontSize: 18,
@@ -233,6 +278,10 @@ const styles = StyleSheet.create({
   },
   listeningText: {
     color: '#3b82f6',
+    fontSize: 14,
+  },
+  processingText: {
+    color: '#f59e0b',
     fontSize: 14,
   },
   errorContainer: {

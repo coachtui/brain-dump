@@ -247,6 +247,28 @@ class ApiService {
       body: JSON.stringify({ statement }),
     });
   }
+
+  // Deepgram voice methods
+  async getDeepgramToken(): Promise<{ token: string }> {
+    return this.request('/api/v1/voice/deepgram-token');
+  }
+
+  async saveTranscript(data: {
+    transcript: string;
+    duration?: number;
+    location?: {
+      latitude: number;
+      longitude: number;
+      accuracy?: number;
+      altitude?: number;
+    };
+    metadata?: Record<string, any>;
+  }): Promise<{ sessionId: string; objectIds: string[]; objectCount: number }> {
+    return this.request('/api/v1/voice/save-transcript', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
 }
 
 export const apiService = new ApiService();
