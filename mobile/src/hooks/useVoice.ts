@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAudioRecorder, AudioModule, RecordingPresets } from 'expo-audio';
+import { File } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
-import { File, Paths } from 'expo-file-system';
 import { wsService } from '../services/websocket';
 import { TranscriptionPayload } from '../types';
 
@@ -196,18 +196,23 @@ export function useVoice(): UseVoiceReturn {
     const uri = audioRecorder.uri;
     console.log('Recording stopped, URI:', uri);
 
-    // Try to send the audio file to the server (optional - may fail in Expo Go)
+    // Send the audio file to the server
     if (uri) {
       try {
         console.log('Reading audio file from URI:', uri);
-        const fullUri = uri.startsWith('file://') ? uri : `${Paths.cache.uri}/${uri}`;
-        console.log('Full URI:', fullUri);
-        const audioFile = new File(fullUri);
+
+        // Use modern File API to read audio file as ArrayBuffer
+        const audioFile = new File(uri);
         const arrayBuffer = await audioFile.arrayBuffer();
+
         console.log('Sending audio chunk, size:', arrayBuffer.byteLength);
         wsService.sendAudioChunk(arrayBuffer);
       } catch (audioError) {
-        console.warn('Could not read audio file (normal in Expo Go):', audioError);
+        console.error('Could not read audio file:', audioError);
+        setState(prev => ({
+          ...prev,
+          error: 'Failed to send audio for transcription'
+        }));
       }
     }
 
