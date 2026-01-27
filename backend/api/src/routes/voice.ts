@@ -48,6 +48,7 @@ router.get('/deepgram-token', async (req: Request, res: Response) => {
     }
 
     // Request a temporary token from Deepgram (60 seconds to connect)
+    console.log('🔑 Requesting Deepgram token (key length:', apiKey?.length, ')');
     const response = await fetch('https://api.deepgram.com/v1/auth/token', {
       method: 'POST',
       headers: {
@@ -59,8 +60,12 @@ router.get('/deepgram-token', async (req: Request, res: Response) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Deepgram token error:', errorText);
-      return res.status(500).json({ error: 'Failed to get Deepgram token' });
+      console.error('❌ Deepgram API error (status:', response.status, '):', errorText);
+      return res.status(500).json({
+        error: 'Failed to get Deepgram token',
+        details: process.env.NODE_ENV === 'development' ? errorText : undefined,
+        status: response.status
+      });
     }
 
     const data = await response.json() as { token: string };
