@@ -15,6 +15,8 @@ import {
   RefreshControl,
   Switch,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useGeofences } from '../hooks/useGeofences';
 import { geofenceMonitoringService } from '../services/geofenceMonitoringService';
 import { locationService } from '../services/locationService';
@@ -184,9 +186,9 @@ export default function GeofencesScreen({ navigation }: GeofencesScreenProps) {
     return (
       <View style={styles.privacyDashboard}>
         <View style={styles.dashboardHeader}>
-          <Text style={styles.dashboardTitle}>🔒 Privacy Dashboard</Text>
+          <Text style={styles.dashboardTitle}>Privacy Dashboard</Text>
           <TouchableOpacity onPress={() => setShowPrivacyDashboard(false)}>
-            <Text style={styles.closeButton}>✕</Text>
+            <Ionicons name="close" size={24} color="#6B7280" />
           </TouchableOpacity>
         </View>
 
@@ -263,19 +265,24 @@ export default function GeofencesScreen({ navigation }: GeofencesScreenProps) {
   if (loading && geofences.length === 0) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" color="#4F46E5" />
         <Text style={styles.loadingText}>Loading geofences...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Geofences</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={24} color="#111827" />
+        </TouchableOpacity>
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle}>Geofences</Text>
+        </View>
         <TouchableOpacity onPress={() => setShowPrivacyDashboard(!showPrivacyDashboard)}>
-          <Text style={styles.privacyButton}>🔒 Privacy</Text>
+          <Ionicons name="shield-checkmark-outline" size={24} color="#4F46E5" />
         </TouchableOpacity>
       </View>
 
@@ -308,7 +315,7 @@ export default function GeofencesScreen({ navigation }: GeofencesScreenProps) {
       >
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -321,20 +328,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#FFF',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },
+  headerTitleContainer: {
+    flex: 1,
+    marginLeft: 16,
+    alignItems: 'center',
+  },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-  },
-  privacyButton: {
-    fontSize: 14,
-    color: '#3B82F6',
-    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,
@@ -361,7 +369,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   geofenceCard: {
-    backgroundColor: '#FFF',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -469,57 +477,58 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   privacyDashboard: {
-    backgroundColor: '#EFF6FF',
-    padding: 16,
+    backgroundColor: '#FFFFFF',
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#BFDBFE',
+    borderBottomColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   dashboardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   dashboardTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1E40AF',
-  },
-  closeButton: {
-    fontSize: 24,
-    color: '#6B7280',
-    fontWeight: '300',
+    color: '#111827',
   },
   dashboardSection: {
-    marginBottom: 12,
+    marginBottom: 16,
   },
   dashboardLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1E40AF',
-    marginBottom: 4,
+    color: '#374151',
+    marginBottom: 8,
   },
   dashboardValue: {
     fontSize: 14,
-    color: '#374151',
-    marginLeft: 8,
+    color: '#6B7280',
+    marginLeft: 12,
+    marginBottom: 4,
   },
   dashboardNote: {
     fontSize: 13,
-    color: '#4B5563',
+    color: '#6B7280',
     lineHeight: 20,
-    marginLeft: 8,
+    marginLeft: 12,
   },
   deleteAllButton: {
     backgroundColor: '#FEE2E2',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 8,
+    padding: 14,
+    borderRadius: 12,
+    marginTop: 12,
     alignItems: 'center',
   },
   deleteAllButtonText: {
-    color: '#991B1B',
-    fontSize: 14,
+    color: '#DC2626',
+    fontSize: 15,
     fontWeight: '600',
   },
   createFab: {
@@ -529,7 +538,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#4F46E5',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -539,7 +548,7 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   fabText: {
-    color: '#FFF',
+    color: '#FFFFFF',
     fontSize: 32,
     fontWeight: '300',
   },

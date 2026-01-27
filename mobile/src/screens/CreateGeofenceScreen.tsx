@@ -15,6 +15,8 @@ import {
   Switch,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Circle } from 'react-native-maps';
 import { locationService, LocationUsageReason } from '../services/locationService';
 import { useGeofences } from '../hooks/useGeofences';
@@ -36,7 +38,6 @@ export default function CreateGeofenceScreen({ navigation }: CreateGeofenceScree
   // UI state
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
-  const [showPermissionExplanation, setShowPermissionExplanation] = useState(false);
 
   const { createGeofence } = useGeofences();
 
@@ -210,7 +211,20 @@ export default function CreateGeofenceScreen({ navigation }: CreateGeofenceScree
   }, []);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={24} color="#111827" />
+        </TouchableOpacity>
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle}>Create Geofence</Text>
+        </View>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={styles.cancelText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Privacy Notice */}
       <View style={styles.privacyNotice}>
         <Text style={styles.privacyText}>
@@ -235,15 +249,15 @@ export default function CreateGeofenceScreen({ navigation }: CreateGeofenceScree
             <Circle
               center={location}
               radius={radius}
-              fillColor="rgba(59, 130, 246, 0.2)"
-              strokeColor="rgba(59, 130, 246, 0.8)"
+              fillColor="rgba(79, 70, 229, 0.2)"
+              strokeColor="rgba(79, 70, 229, 0.8)"
               strokeWidth={2}
             />
           </MapView>
         ) : (
           <View style={styles.mapPlaceholder}>
             {locationLoading ? (
-              <ActivityIndicator size="large" color="#3B82F6" />
+              <ActivityIndicator size="large" color="#4F46E5" />
             ) : (
               <TouchableOpacity onPress={requestLocationAccess} style={styles.locationButton}>
                 <Text style={styles.locationButtonText}>📍 Enable Location</Text>
@@ -357,7 +371,7 @@ export default function CreateGeofenceScreen({ navigation }: CreateGeofenceScree
           )}
         </TouchableOpacity>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -366,16 +380,42 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9FAFB',
   },
-  privacyNotice: {
-    backgroundColor: '#DBEAFE',
-    padding: 12,
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#93C5FD',
+    borderBottomColor: '#E5E7EB',
+  },
+  headerTitleContainer: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  cancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#EF4444',
+  },
+  privacyNotice: {
+    backgroundColor: '#EFF6FF',
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#DBEAFE',
   },
   privacyText: {
-    fontSize: 14,
-    color: '#1E40AF',
+    fontSize: 13,
+    color: '#3B82F6',
     textAlign: 'center',
+    lineHeight: 18,
   },
   mapContainer: {
     height: 250,
@@ -390,35 +430,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   locationButton: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#4F46E5',
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   locationButtonText: {
-    color: '#FFF',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
   form: {
     flex: 1,
-    padding: 16,
+    padding: 20,
   },
   formGroup: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   label: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
+    color: '#111827',
+    marginBottom: 10,
   },
   input: {
-    backgroundColor: '#FFF',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    padding: 12,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 14,
     fontSize: 16,
     color: '#111827',
   },
@@ -432,23 +472,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   typeButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: '#FFF',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#E5E7EB',
   },
   typeButtonActive: {
-    backgroundColor: '#3B82F6',
-    borderColor: '#3B82F6',
+    backgroundColor: '#4F46E5',
+    borderColor: '#4F46E5',
   },
   typeButtonText: {
     fontSize: 14,
     color: '#6B7280',
+    fontWeight: '500',
   },
   typeButtonTextActive: {
-    color: '#FFF',
+    color: '#FFFFFF',
     fontWeight: '600',
   },
   radiusButtons: {
@@ -457,66 +498,69 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   radiusButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: '#FFF',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#E5E7EB',
   },
   radiusButtonActive: {
-    backgroundColor: '#3B82F6',
-    borderColor: '#3B82F6',
+    backgroundColor: '#4F46E5',
+    borderColor: '#4F46E5',
   },
   radiusButtonText: {
     fontSize: 14,
     color: '#6B7280',
+    fontWeight: '500',
   },
   radiusButtonTextActive: {
-    color: '#FFF',
+    color: '#FFFFFF',
     fontWeight: '600',
   },
   switchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FFF',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
   },
   switchLabel: {
     flex: 1,
   },
   switchText: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#111827',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   switchSubtext: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#6B7280',
-    marginTop: 2,
+    marginTop: 4,
   },
   permissionNote: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#6B7280',
-    marginTop: 8,
-    fontStyle: 'italic',
+    marginTop: 10,
+    lineHeight: 18,
   },
   createButton: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#4F46E5',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 12,
     marginBottom: 32,
   },
   createButtonDisabled: {
-    backgroundColor: '#9CA3AF',
+    backgroundColor: '#D1D5DB',
   },
   createButtonText: {
-    color: '#FFF',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
