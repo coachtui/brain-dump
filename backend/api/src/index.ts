@@ -40,6 +40,7 @@ app.get('/health', async (req, res) => {
   const dbConnected = await testConnection();
   const weaviateConnected = await testWeaviateConnection();
   const storageConnected = await testStorageConnection();
+  const deepgramConfigured = !!process.env.DEEPGRAM_API_KEY;
 
   const allConnected = dbConnected && weaviateConnected && storageConnected;
   const someConnected = dbConnected || weaviateConnected || storageConnected;
@@ -53,6 +54,7 @@ app.get('/health', async (req, res) => {
     database: dbConnected ? 'connected' : 'disconnected',
     vectorDb: weaviateConnected ? 'connected' : 'disconnected',
     storage: storageConnected ? 'connected' : 'disconnected',
+    deepgram: deepgramConfigured ? 'configured' : 'not configured',
   });
 });
 
