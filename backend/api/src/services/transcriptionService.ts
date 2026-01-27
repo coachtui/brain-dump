@@ -2,6 +2,12 @@
  * Transcription Service using OpenAI Whisper API
  */
 
+// Polyfill for File object (required for OpenAI SDK in Node < 20)
+if (typeof globalThis.File === 'undefined') {
+  const { File } = require('node:buffer');
+  globalThis.File = File;
+}
+
 import OpenAI from 'openai';
 import { Readable } from 'stream';
 import * as fs from 'fs';
