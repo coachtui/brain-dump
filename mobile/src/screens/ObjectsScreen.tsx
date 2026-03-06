@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { useObjects } from '../hooks/useObjects';
 import { AtomicObject, Category } from '../types';
+import { apiService } from '../services/api';
 
 type ObjectsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Objects'>;
 
@@ -96,6 +97,16 @@ export function ObjectsScreen({ navigation }: Props) {
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState('');
 
+  // Stale actionables
+  const [staleObjects, setStaleObjects] = useState<AtomicObject[]>([]);
+  const [staleExpanded, setStaleExpanded] = useState(true);
+
+  useEffect(() => {
+    apiService.getStaleActionables()
+      .then(({ objects }) => setStaleObjects(objects))
+      .catch(() => {}); // non-critical, silently ignore
+  }, []);
+
   const handleSearch = useCallback(() => {
     setFilters({
       ...filters,
@@ -164,6 +175,64 @@ export function ObjectsScreen({ navigation }: Props) {
     setEditMode(false);
     setEditContent('');
   }, []);
+
+  const renderStaleCard = useCallback(
+    (item: AtomicObject) => {
+      const daysOld = Math.floor(
+        (Date.now() - new Date(item.createdAt).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      const label = item.title || item.content;
+      return (
+        <TouchableOpacity
+          key={item.id}
+          style={styles.staleCard}
+          onPress={() => handleObjectPress(item)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.staleCardAge}>{daysOld}d old</Text>
+          <Text style={styles.staleCardContent} numberOfLines={2}>
+            {label}
+          </Text>
+          {item.actionability?.nextAction ? (
+            <Text style={styles.staleCardAction} numberOfLines={1}>
+              {item.actionability.nextAction}
+            </Text>
+          ) : null}
+        </TouchableOpacity>
+      );
+    },
+    [handleObjectPress]
+  );
+
+  const renderStaleBanner = useCallback(() => {
+    if (staleObjects.length === 0) return null;
+    return (
+      <View style={styles.staleBanner}>
+        <TouchableOpacity
+          style={styles.staleBannerHeader}
+          onPress={() => setStaleExpanded((v) => !v)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.staleBannerTitleRow}>
+            <View style={styles.staleDot} />
+            <Text style={styles.staleBannerTitle}>
+              Needs Attention ({staleObjects.length})
+            </Text>
+          </View>
+          <Text style={styles.staleBannerChevron}>{staleExpanded ? '▲' : '▼'}</Text>
+        </TouchableOpacity>
+        {staleExpanded && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.staleCardsRow}
+          >
+            {staleObjects.map(renderStaleCard)}
+          </ScrollView>
+        )}
+      </View>
+    );
+  }, [staleObjects, staleExpanded, renderStaleCard]);
 
   const renderCategoryChip = useCallback(
     (category: Category) => {
@@ -326,6 +395,9 @@ export function ObjectsScreen({ navigation }: Props) {
       >
         {ALL_CATEGORIES.map(renderCategoryChip)}
       </ScrollView>
+
+      {/* Stale Actionables Banner */}
+      {renderStaleBanner()}
 
       {/* Objects List */}
       {isLoading && objects.length === 0 ? (
@@ -900,5 +972,69 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     flex: 1,
+  },
+  // Stale actionables
+  staleBanner: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+    backgroundColor: '#0f0a00',
+  },
+  staleBannerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  staleBannerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  staleDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#f59e0b',
+  },
+  staleBannerTitle: {
+    color: '#f59e0b',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  staleBannerChevron: {
+    color: '#666',
+    fontSize: 10,
+  },
+  staleCardsRow: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 10,
+    flexDirection: 'row',
+  },
+  staleCard: {
+    width: 160,
+    backgroundColor: '#1a1200',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#3a2a00',
+  },
+  staleCardAge: {
+    color: '#f59e0b',
+    fontSize: 10,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  staleCardContent: {
+    color: '#fff',
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 4,
+  },
+  staleCardAction: {
+    color: '#888',
+    fontSize: 11,
+    fontStyle: 'italic',
   },
 });

@@ -54,6 +54,20 @@ export interface AtomicObject {
     contradictions: string[];
     references: string[];
   };
+  // v2 rich fields
+  title?: string | null;
+  objectType?: string | null;
+  domain?: string;
+  actionability?: {
+    isActionable: boolean;
+    nextAction: string | null;
+  };
+  linkedObjectIds?: string[];
+  temporalHints?: {
+    hasDate: boolean;
+    dateText: string | null;
+    urgency: 'low' | 'medium' | 'high' | null;
+  };
   createdAt: Date;
   updatedAt: Date;
   vectorEmbedding?: number[];

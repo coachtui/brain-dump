@@ -419,6 +419,22 @@ export class AtomicObjectModel {
   }
 
   /**
+   * Find stale actionable objects: is_actionable=true, older than 7 days, no linked resolution
+   */
+  static async findStaleActionables(userId: string): Promise<AtomicObjectModel[]> {
+    const rows = await queryMany<AtomicObjectRow>(
+      `SELECT * FROM hub.atomic_objects
+       WHERE user_id = $1
+         AND is_actionable = true
+         AND created_at < NOW() - INTERVAL '7 days'
+         AND cardinality(linked_object_ids) = 0
+       ORDER BY created_at ASC`,
+      [userId]
+    );
+    return rows.map((row) => new AtomicObjectModel(row));
+  }
+
+  /**
    * Delete atomic object
    */
   async delete(): Promise<void> {

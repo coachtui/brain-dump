@@ -237,6 +237,14 @@ export async function deleteObject(userId: string, objectId: string): Promise<vo
 }
 
 /**
+ * List stale actionable objects (is_actionable=true, >7 days old, no linked resolution)
+ */
+export async function listStaleActionables(userId: string): Promise<AtomicObject[]> {
+  const objects = await AtomicObjectModel.findStaleActionables(userId);
+  return objects.map((obj) => obj.toAtomicObject());
+}
+
+/**
  * Find similar objects
  */
 export async function findSimilarObjects(

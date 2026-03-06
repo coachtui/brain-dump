@@ -273,6 +273,10 @@ class ApiService {
     });
   }
 
+  async getStaleActionables(): Promise<{ objects: AtomicObject[] }> {
+    return this.request<{ objects: AtomicObject[] }>('/api/v1/objects/stale-actionables');
+  }
+
   // Geofence methods
   async getGeofences(): Promise<{ geofences: any[] }> {
     return this.request('/api/v1/geofences');

@@ -7,6 +7,7 @@ import {
   createObject,
   getObjectById,
   listObjects,
+  listStaleActionables,
   updateObject,
   deleteObject,
   findSimilarObjects,
@@ -67,6 +68,27 @@ router.get('/', async (req: Request, res: Response) => {
     res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: error instanceof Error ? error.message : 'Failed to list objects',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/objects/stale-actionables
+ * Objects with is_actionable=true, older than 7 days, no linked resolution
+ */
+router.get('/stale-actionables', async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'UNAUTHORIZED', message: 'Not authenticated' });
+      return;
+    }
+
+    const objects = await listStaleActionables(req.user.id);
+    res.json({ objects });
+  } catch (error) {
+    res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: error instanceof Error ? error.message : 'Failed to fetch stale actionables',
     });
   }
 });
