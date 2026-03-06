@@ -69,7 +69,7 @@ export default function SearchScreen({ navigation }: any) {
       </Text>
       <View style={styles.resultFooter}>
         <Text style={styles.timestampText}>
-          {new Date(item.createdAt).toLocaleDateString()}
+          {new Date(item.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })}
         </Text>
         {item.metadata.tags.length > 0 && (
           <View style={styles.tagsContainer}>

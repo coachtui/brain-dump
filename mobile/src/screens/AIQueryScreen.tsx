@@ -85,9 +85,10 @@ export default function AIQueryScreen({ navigation }: any) {
           )}
 
           <Text style={styles.timestamp}>
-            {new Date(item.timestamp).toLocaleTimeString([], {
+            {new Date(item.timestamp).toLocaleTimeString(undefined, {
               hour: '2-digit',
               minute: '2-digit',
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             })}
           </Text>
         </View>

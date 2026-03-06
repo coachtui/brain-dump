@@ -49,11 +49,12 @@ const CATEGORY_COLORS: Record<Category, string> = {
 
 function formatDate(date: Date | string): string {
   const d = new Date(date);
-  return d.toLocaleDateString('en-US', {
+  return d.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
 }
 
