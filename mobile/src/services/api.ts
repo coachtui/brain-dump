@@ -59,6 +59,18 @@ export interface SparResponse {
   contextPack: any;
 }
 
+export interface ConflictItem {
+  objectId: string;
+  description: string;
+  confidence: number;
+}
+
+export interface ContradictionResult {
+  hasConflict: boolean;
+  conflicts: ConflictItem[];
+  explanation: string | null;
+}
+
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
 /**
@@ -301,6 +313,13 @@ class ApiService {
     return this.request('/api/v1/rag/search', {
       method: 'POST',
       body: JSON.stringify({ query, ...options }),
+    });
+  }
+
+  async ragCheckContradictions(statement: string, excludeIds?: string[]): Promise<ContradictionResult> {
+    return this.request('/api/v1/rag/contradictions', {
+      method: 'POST',
+      body: JSON.stringify({ statement, excludeIds: excludeIds ?? [] }),
     });
   }
 

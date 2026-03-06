@@ -335,6 +335,109 @@ function parseLLMResponse(raw: string): {
   }
 }
 
+// ─── Contradiction detection ──────────────────────────────────────────────────
+
+export interface ConflictItem {
+  objectId: string;
+  description: string;
+  confidence: number;
+}
+
+export interface ContradictionResult {
+  hasConflict: boolean;
+  conflicts: ConflictItem[];
+  explanation: string | null;
+}
+
+const CONTRADICTION_SYSTEM_PROMPT = `You are a memory consistency checker for a personal second brain system.
+
+Given a new statement and a list of existing notes, identify DIRECT contradictions only — where the new statement clearly conflicts with an existing note.
+
+Contradictions include:
+- Changed decisions: "I decided X" vs "I decided not X"
+- Conflicting facts: "Meeting on Tuesday" vs "Meeting on Wednesday"
+- Reversed plans: "I'm doing Y" vs "I cancelled Y"
+
+Do NOT flag: updates or refinements, vague similarities, or different time periods.
+
+RETURN valid JSON only:
+{
+  "has_conflict": false,
+  "conflicts": [{"object_id": "...", "description": "Brief conflict description", "confidence": 0.9}],
+  "explanation": "One sentence summary, or null"
+}`;
+
+/**
+ * Check a new statement for contradictions against the user's existing notes.
+ * excludeIds: object IDs to skip (e.g. just-saved objects from the same transcript).
+ */
+export async function detectContradictions(
+  userId: string,
+  statement: string,
+  excludeIds: string[] = []
+): Promise<ContradictionResult> {
+  const empty: ContradictionResult = { hasConflict: false, conflicts: [], explanation: null };
+
+  if (statement.trim().length < 50) return empty;
+
+  let searchResults;
+  try {
+    searchResults = await semanticSearch({ userId, query: statement, limit: 10 });
+  } catch {
+    return empty;
+  }
+
+  const SCORE_THRESHOLD = 0.45;
+  const filtered = searchResults.filter(
+    (r) => !excludeIds.includes(r.objectId) && r.score >= SCORE_THRESHOLD
+  );
+
+  if (filtered.length === 0) return empty;
+
+  const fullObjects = await AtomicObjectModel.findByIds(filtered.map((r) => r.objectId));
+  const notesText = fullObjects
+    .map((obj) => {
+      const atom = obj.toAtomicObject();
+      const date = new Date(atom.createdAt).toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+      });
+      const text = (atom.cleanedText ?? atom.content).slice(0, 300);
+      return `ID: ${atom.id}\nDate: ${date}\n${text}`;
+    })
+    .join('\n\n---\n\n');
+
+  let rawResponse: string;
+  try {
+    rawResponse = await callLLM(
+      CONTRADICTION_SYSTEM_PROMPT,
+      `NEW STATEMENT:\n${statement.slice(0, 1000)}\n\nEXISTING NOTES:\n${notesText}`
+    );
+  } catch {
+    return empty;
+  }
+
+  try {
+    let text = rawResponse.trim();
+    if (text.startsWith('```json')) text = text.slice(7);
+    if (text.startsWith('```')) text = text.slice(3);
+    if (text.endsWith('```')) text = text.slice(0, -3);
+    const parsed = JSON.parse(text.trim());
+    return {
+      hasConflict: Boolean(parsed.has_conflict),
+      conflicts: Array.isArray(parsed.conflicts)
+        ? parsed.conflicts.map((c: any) => ({
+            objectId: c.object_id,
+            description: c.description,
+            confidence: c.confidence ?? 0.5,
+          }))
+        : [],
+      explanation: parsed.explanation ?? null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
 // ─── Main spar function ───────────────────────────────────────────────────────
 
 /**

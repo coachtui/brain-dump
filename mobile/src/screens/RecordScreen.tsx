@@ -32,6 +32,8 @@ export function RecordScreen({ navigation }: Props) {
     duration,
     error,
     savedObjectIds,
+    relatedNotes,
+    contradictions,
     startRecording,
     stopRecording,
     reset,
@@ -141,6 +143,44 @@ export function RecordScreen({ navigation }: Props) {
               <View style={styles.listeningIndicator}>
                 <ActivityIndicator size="small" color="#f59e0b" />
                 <Text style={styles.processingText}>Saving transcript...</Text>
+              </View>
+            )}
+
+            {/* Contradiction warning */}
+            {isDone && contradictions.length > 0 && (
+              <View style={styles.contradictionBanner}>
+                <Text style={styles.contradictionTitle}>⚠ Possible contradiction</Text>
+                {contradictions.slice(0, 2).map((c, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    onPress={() => navigation.navigate('ObjectDetail', { objectId: c.objectId })}
+                  >
+                    <Text style={styles.contradictionText}>{c.description}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Related notes */}
+            {isDone && relatedNotes.length > 0 && (
+              <View style={styles.relatedSection}>
+                <Text style={styles.relatedTitle}>Related to your notes</Text>
+                {relatedNotes.map((note) => (
+                  <TouchableOpacity
+                    key={note.objectId}
+                    style={styles.relatedCard}
+                    onPress={() => navigation.navigate('ObjectDetail', { objectId: note.objectId })}
+                  >
+                    <View style={styles.relatedCardHeader}>
+                      <Text style={styles.relatedType}>{note.type}</Text>
+                      <Text style={styles.relatedScore}>{Math.round(note.score * 100)}%</Text>
+                    </View>
+                    {note.title && (
+                      <Text style={styles.relatedNoteTitle} numberOfLines={1}>{note.title}</Text>
+                    )}
+                    <Text style={styles.relatedNoteText} numberOfLines={2}>{note.cleanedText}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             )}
           </View>
@@ -328,5 +368,72 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 14,
     marginTop: 16,
+  },
+  contradictionBanner: {
+    marginTop: 20,
+    backgroundColor: '#2d1a00',
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#f59e0b44',
+  },
+  contradictionTitle: {
+    color: '#f59e0b',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  contradictionText: {
+    color: '#d97706',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  relatedSection: {
+    marginTop: 24,
+  },
+  relatedTitle: {
+    color: '#666',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+  },
+  relatedCard: {
+    backgroundColor: '#141414',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#222',
+  },
+  relatedCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  relatedType: {
+    color: '#555',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  relatedScore: {
+    color: '#4F46E5',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  relatedNoteTitle: {
+    color: '#ccc',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  relatedNoteText: {
+    color: '#666',
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

@@ -1,8 +1,9 @@
 /**
- * RAG routes — semantic search and AI sparring
+ * RAG routes — semantic search, AI sparring, contradiction detection
  *
- * POST /api/v1/rag/search  — semantic search with filters
- * POST /api/v1/rag/spar    — AI sparring grounded in user's notes
+ * POST /api/v1/rag/search          — semantic search with filters
+ * POST /api/v1/rag/spar            — AI sparring grounded in user's notes
+ * POST /api/v1/rag/contradictions  — check a statement against existing notes
  */
 
 import { Router, Request, Response } from 'express';
@@ -10,7 +11,7 @@ import { z } from 'zod';
 import { authenticate } from '../auth/middleware';
 import { semanticSearch } from '../services/vectorService';
 import { AtomicObjectModel } from '../models/AtomicObject';
-import { buildContextPack, sparWithContext } from '../services/sparringService';
+import { buildContextPack, sparWithContext, detectContradictions } from '../services/sparringService';
 
 const router = Router();
 
@@ -226,6 +227,43 @@ router.post('/context-pack', async (req: Request, res: Response) => {
     console.error('[RAG] context-pack error:', error);
     return res.status(500).json({
       error: 'Failed to build context pack',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// ─── POST /contradictions ──────────────────────────────────────────────────────
+
+const contradictionsSchema = z.object({
+  statement: z.string().min(1, 'Statement is required'),
+  excludeIds: z.array(z.string().uuid()).optional().default([]),
+});
+
+/**
+ * Check a statement (e.g. new transcript) against existing notes for contradictions.
+ * excludeIds: IDs of objects just saved from this same recording — skip them.
+ */
+router.post('/contradictions', async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+
+  try {
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const validation = contradictionsSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.error.errors });
+    }
+
+    const { statement, excludeIds } = validation.data;
+    console.log(`[RAG] POST /contradictions — userId: ${userId}, statement length: ${statement.length}`);
+
+    const result = await detectContradictions(userId, statement, excludeIds);
+
+    return res.json(result);
+  } catch (error) {
+    console.error('[RAG] contradictions error:', error);
+    return res.status(500).json({
+      error: 'Contradiction check failed',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }

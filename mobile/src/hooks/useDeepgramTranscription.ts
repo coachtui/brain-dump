@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { ExpoPlayAudioStream } from '@mykin-ai/expo-audio-stream';
-import { apiService, AuthError } from '../services/api';
+import { apiService, AuthError, RagSearchResult, ConflictItem } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import type { GeoPoint } from '../types';
 
@@ -11,6 +11,8 @@ interface TranscriptionState {
   duration: number;
   error: string | null;
   savedObjectIds: string[];
+  relatedNotes: RagSearchResult[];
+  contradictions: ConflictItem[];
 }
 
 interface UseDeepgramTranscriptionReturn extends TranscriptionState {
@@ -39,7 +41,12 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
     duration: 0,
     error: null,
     savedObjectIds: [],
+    relatedNotes: [],
+    contradictions: [],
   });
+
+  // Incremented on each new recording session so stale background calls don't update state
+  const sessionIdRef = useRef<number>(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioSubscriptionRef = useRef<any>(null);
@@ -286,11 +293,44 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
         console.log('[Recording] transcript saved — sessionId:', result.sessionId,
           '— objectCount:', result.objectCount);
 
+        const sessionId = ++sessionIdRef.current;
+
         setState(prev => ({
           ...prev,
           status: 'done',
           savedObjectIds: result.objectIds,
+          relatedNotes: [],
+          contradictions: [],
         }));
+
+        // ── Background: related notes ──────────────────────────────────
+        if (transcript.trim().length > 50) {
+          void (async () => {
+            try {
+              const searchResp = await apiService.ragSearch(transcript, { topK: 5 });
+              const related = (searchResp.results ?? [])
+                .filter((r) => !result.objectIds.includes(r.objectId))
+                .slice(0, 3);
+              if (sessionIdRef.current === sessionId && related.length > 0) {
+                setState((prev) => ({ ...prev, relatedNotes: related }));
+              }
+            } catch {
+              // non-critical — silent
+            }
+          })();
+
+          // ── Background: contradiction check ────────────────────────
+          void (async () => {
+            try {
+              const contr = await apiService.ragCheckContradictions(transcript, result.objectIds);
+              if (sessionIdRef.current === sessionId && contr.hasConflict) {
+                setState((prev) => ({ ...prev, contradictions: contr.conflicts }));
+              }
+            } catch {
+              // non-critical — silent
+            }
+          })();
+        }
       } catch (error) {
         console.error('[Recording] saveTranscript failed:', error instanceof Error ? error.message : error);
         handleAuthError(error);
@@ -311,6 +351,7 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
   }, [handleAuthError]);
 
   const reset = useCallback(() => {
+    sessionIdRef.current++; // invalidate any in-flight background calls
     setState({
       status: 'idle',
       partialTranscript: '',
@@ -318,6 +359,8 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
       duration: 0,
       error: null,
       savedObjectIds: [],
+      relatedNotes: [],
+      contradictions: [],
     });
     finalTranscriptRef.current = '';
     partialTranscriptRef.current = '';
