@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { ExpoPlayAudioStream } from '@mykin-ai/expo-audio-stream';
-import { Audio } from 'expo-av';
 import { apiService, AuthError } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import type { GeoPoint } from '../types';
@@ -82,18 +81,11 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
       }
 
       // ── 2. Microphone permission ────────────────────────────────────────
-      const { status } = await Audio.requestPermissionsAsync();
-      console.log('[Recording] microphone permission:', status);
-      if (status !== 'granted') {
+      const { granted } = await ExpoPlayAudioStream.requestPermissionsAsync();
+      console.log('[Recording] microphone permission granted:', granted);
+      if (!granted) {
         throw new Error('Microphone permission not granted');
       }
-
-      // Set audio mode for recording
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-      console.log('[Recording] audio mode set');
 
       // ── 3. Deepgram token fetch ────────────────────────────────────────
       console.log('[Recording] fetching Deepgram token from backend...');
@@ -187,7 +179,7 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
         interval: 250,
         enableProcessing: false,
         onAudioStream: async (event) => {
-          if (event.type === 'microphone' && wsRef.current?.readyState === WebSocket.OPEN) {
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
             const data = typeof event.data === 'string' ? event.data : '';
             if (data) {
               const arrayBuffer = base64ToArrayBuffer(data);
