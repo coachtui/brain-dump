@@ -51,7 +51,7 @@ export default function SearchScreen({ navigation }: any) {
   const renderResult = ({ item }: { item: RagSearchResult }) => (
     <TouchableOpacity
       style={styles.resultCard}
-      onPress={() => navigation.navigate('ObjectDetail', { objectId: item.objectId })}
+      onPress={() => navigation.navigate('Objects', { objectId: item.objectId })}
     >
       <View style={styles.resultHeader}>
         <View style={styles.badgeRow}>

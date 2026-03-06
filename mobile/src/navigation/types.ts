@@ -4,7 +4,7 @@ export type RootStackParamList = {
   Home: undefined;
   Record: undefined;
   Sessions: undefined;
-  Objects: { geofenceId?: string } | undefined;
+  Objects: { geofenceId?: string; objectId?: string } | undefined;
   Geofences: undefined;
   CreateGeofence: undefined;
   Search: undefined;

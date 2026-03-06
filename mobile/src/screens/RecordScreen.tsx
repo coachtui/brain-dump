@@ -153,7 +153,7 @@ export function RecordScreen({ navigation }: Props) {
                 {contradictions.slice(0, 2).map((c, i) => (
                   <TouchableOpacity
                     key={i}
-                    onPress={() => navigation.navigate('ObjectDetail', { objectId: c.objectId })}
+                    onPress={() => navigation.navigate('Objects', { objectId: c.objectId })}
                   >
                     <Text style={styles.contradictionText}>{c.description}</Text>
                   </TouchableOpacity>
@@ -169,7 +169,7 @@ export function RecordScreen({ navigation }: Props) {
                   <TouchableOpacity
                     key={note.objectId}
                     style={styles.relatedCard}
-                    onPress={() => navigation.navigate('ObjectDetail', { objectId: note.objectId })}
+                    onPress={() => navigation.navigate('Objects', { objectId: note.objectId })}
                   >
                     <View style={styles.relatedCardHeader}>
                       <Text style={styles.relatedType}>{note.type}</Text>

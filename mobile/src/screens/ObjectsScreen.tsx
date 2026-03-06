@@ -76,6 +76,7 @@ function getUrgencyColor(urgency: 'low' | 'medium' | 'high'): string {
 export function ObjectsScreen({ navigation }: Props) {
   const route = useRoute<RouteProp<RootStackParamList, 'Objects'>>();
   const geofenceId = route.params?.geofenceId;
+  const initialObjectId = route.params?.objectId;
   const {
     objects,
     isLoading,
@@ -109,6 +110,13 @@ export function ObjectsScreen({ navigation }: Props) {
       .then(({ objects }) => setStaleObjects(objects))
       .catch(() => {});
   }, []);
+
+  // Auto-open detail modal when navigated with an objectId (e.g. from SearchScreen or RecordScreen)
+  useEffect(() => {
+    if (!initialObjectId) return;
+    setModalVisible(true);
+    fetchObjectDetail(initialObjectId);
+  }, [initialObjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Geofence context (when navigated from a notification)
   const [geofenceObjects, setGeofenceObjects] = useState<AtomicObject[]>([]);
