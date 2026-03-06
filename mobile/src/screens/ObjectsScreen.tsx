@@ -580,7 +580,7 @@ const styles = StyleSheet.create({
   },
   // Category Filter
   categoryFilter: {
-    maxHeight: 56,
+    height: 52,
     borderBottomWidth: 1,
     borderBottomColor: '#1a1a1a',
   },
