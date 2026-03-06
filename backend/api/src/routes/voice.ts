@@ -52,41 +52,12 @@ router.get('/deepgram-token', async (req: Request, res: Response) => {
       });
     }
 
-    // Correct endpoint: POST /v1/auth/grant  (not /v1/auth/token)
-    // Correct body field: ttl_seconds        (not time_to_live)
-    // Correct response field: access_token   (not token)
-    console.log('[Voice] requesting Deepgram temp token — key length:', apiKey.length);
-    const dgResponse = await fetch('https://api.deepgram.com/v1/auth/grant', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ ttl_seconds: 120 }),
-    });
-
-    if (!dgResponse.ok) {
-      const errorText = await dgResponse.text();
-      console.error('[Voice] Deepgram grant returned', dgResponse.status, '—', errorText.slice(0, 200));
-      return res.status(502).json({
-        message: dgResponse.status === 401
-          ? 'Deepgram API key is invalid or unauthorised'
-          : `Deepgram token service error (upstream ${dgResponse.status})`,
-        code: 'DEEPGRAM_UPSTREAM_ERROR',
-      });
-    }
-
-    const data = await dgResponse.json() as { access_token: string; expires_in: number };
-    if (!data.access_token) {
-      console.error('[Voice] Deepgram grant response missing access_token:', JSON.stringify(data));
-      return res.status(502).json({
-        message: 'Deepgram returned an unexpected response',
-        code: 'DEEPGRAM_BAD_RESPONSE',
-      });
-    }
-
-    console.log('[Voice] Deepgram token issued — expires_in:', data.expires_in, 's');
-    res.json({ token: data.access_token });
+    // Return the API key directly — regular Deepgram keys work with the
+    // WebSocket Sec-WebSocket-Protocol: token, <key> header. The /auth/grant
+    // temporary-token endpoint requires Member-level permissions which this
+    // key does not have; passing the key directly is equivalent for our use case.
+    console.log('[Voice] returning Deepgram key as token — key length:', apiKey.length);
+    res.json({ token: apiKey });
   } catch (error) {
     console.error('[Voice] error getting Deepgram token:', error);
     res.status(500).json({

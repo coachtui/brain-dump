@@ -100,10 +100,9 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
         const result = await apiService.getDeepgramToken();
         token = result.token;
       } catch (err) {
-        // Re-throw with a user-friendly message; preserve the backend detail in the log
         const detail = err instanceof Error ? err.message : String(err);
         console.error('[Recording] Deepgram token fetch failed:', detail);
-        throw new Error('Voice service unavailable. Please try again later.');
+        throw new Error(`Voice service unavailable — ${detail}`);
       }
       if (!token) {
         console.error('[Recording] Deepgram token is empty');
