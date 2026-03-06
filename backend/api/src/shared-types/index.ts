@@ -12,7 +12,7 @@ export interface GeoPoint {
   timestamp?: number;
 }
 
-export type Category = 
+export type Category =
   | 'business'
   | 'personal'
   | 'fitness'
@@ -22,6 +22,28 @@ export type Category =
   | 'education'
   | 'other';
 
+export type ObjectType =
+  | 'task'
+  | 'reminder'
+  | 'idea'
+  | 'observation'
+  | 'question'
+  | 'decision'
+  | 'journal'
+  | 'reference';
+
+export type ObjectDomain =
+  | 'work'
+  | 'personal'
+  | 'health'
+  | 'family'
+  | 'finance'
+  | 'project'
+  | 'misc'
+  | 'unknown';
+
+export type EmbeddingStatus = 'pending' | 'complete' | 'failed';
+
 export interface Entity {
   type: 'person' | 'place' | 'organization' | 'task' | 'date' | 'other';
   value: string;
@@ -30,12 +52,30 @@ export interface Entity {
   endIndex?: number;
 }
 
+export interface TemporalHints {
+  hasDate: boolean;
+  dateText: string | null;
+  urgency: 'low' | 'medium' | 'high' | null;
+}
+
+export interface LocationHints {
+  places: string[];
+  geofenceCandidate: boolean;
+}
+
+export interface Actionability {
+  isActionable: boolean;
+  nextAction: string | null;
+}
+
 export interface AtomicObject {
   id: string; // UUID
   userId: string;
+
+  // v1 fields — kept for backward compatibility
   content: string;
-  category: Category[]; // Multi-label classification
-  confidence: number; // Classification confidence (0-1)
+  category: Category[];
+  confidence: number;
   source: {
     type: 'voice' | 'text' | 'import';
     recordingId?: string;
@@ -43,19 +83,33 @@ export interface AtomicObject {
     location?: GeoPoint;
   };
   metadata: {
-    entities: Entity[]; // Extracted entities
+    entities: Entity[];
     sentiment: 'positive' | 'neutral' | 'negative';
     urgency: 'low' | 'medium' | 'high';
     tags: string[];
   };
   relationships: {
-    relatedObjects: string[]; // IDs of related atomic objects
-    contradictions: string[]; // IDs of objects that contradict this
-    references: string[]; // IDs of objects this references
+    relatedObjects: string[];
+    contradictions: string[];
+    references: string[];
   };
+
+  // v2 rich fields
+  rawText?: string | null;
+  cleanedText?: string | null;
+  title?: string | null;
+  objectType?: ObjectType | null;
+  domain?: ObjectDomain;
+  temporalHints?: TemporalHints;
+  locationHints?: LocationHints;
+  actionability?: Actionability;
+  linkedObjectIds?: string[];
+  sequenceIndex?: number;
+  embeddingStatus?: EmbeddingStatus;
+
   createdAt: Date;
   updatedAt: Date;
-  vectorEmbedding?: number[]; // Stored in vector DB
+  vectorEmbedding?: number[];
 }
 
 export interface Geofence {
@@ -65,7 +119,7 @@ export interface Geofence {
   center: GeoPoint;
   radius: number; // meters
   type: 'home' | 'work' | 'gym' | 'custom';
-  associatedObjects: string[]; // Atomic object IDs
+  associatedObjects: string[];
   notificationSettings: {
     enabled: boolean;
     onEnter: boolean;
@@ -83,8 +137,8 @@ export interface KnowledgeNode {
   properties: Record<string, any>;
   connections: {
     nodeId: string;
-    relationship: string; // 'mentions', 'contradicts', 'references', 'similar_to'
-    strength: number; // 0-1
+    relationship: string;
+    strength: number;
   }[];
   lastSeen: Date;
   frequency: number;
@@ -118,9 +172,21 @@ export interface AtomicObjectCreateRequest {
     location?: GeoPoint;
   };
   metadata?: {
+    entities?: Entity[];
     tags?: string[];
     urgency?: 'low' | 'medium' | 'high';
+    sentiment?: 'positive' | 'neutral' | 'negative';
   };
+  // v2 rich fields
+  rawText?: string | null;
+  cleanedText?: string | null;
+  title?: string | null;
+  objectType?: ObjectType | null;
+  domain?: ObjectDomain;
+  temporalHints?: TemporalHints;
+  locationHints?: LocationHints;
+  actionability?: Actionability;
+  sequenceIndex?: number;
 }
 
 export interface AtomicObjectResponse {
@@ -175,7 +241,7 @@ export interface Insight {
 
 export interface Pattern {
   id: string;
-  domains: string[]; // e.g., ['business', 'fitness']
+  domains: string[];
   description: string;
   frequency: number;
   relatedObjects: string[];
@@ -191,9 +257,9 @@ export interface PrivacySettings {
     encryptMetadata: boolean;
   };
   dataRetention: {
-    audioRetention: number; // days, 0 = delete immediately
-    locationHistory: number; // days
-    autoDeleteAfter: number; // days
+    audioRetention: number;
+    locationHistory: number;
+    autoDeleteAfter: number;
   };
   sharing: {
     allowCloudSync: boolean;

@@ -1,10 +1,32 @@
 /**
- * Vector service - handles vector storage and semantic search in Weaviate
+ * Vector service — handles vector storage and semantic search in Weaviate
+ * v2: richer embedding text, full v2 object properties, embedding status tracking
  */
 
 import { getWeaviateClient } from '../db/weaviate';
-import type { AtomicObject } from '@shared/types';
+import { AtomicObjectModel } from '../models/AtomicObject';
+import type { AtomicObject, EmbeddingStatus } from '@shared/types';
 import axios from 'axios';
+
+/**
+ * Build the text used for embedding. Combines the most retrieval-relevant
+ * fields: cleanedText (or content), title, objectType, domain, tags.
+ */
+function buildEmbeddingText(object: AtomicObject): string {
+  const parts: string[] = [];
+
+  if (object.title) parts.push(object.title);
+  if (object.cleanedText) {
+    parts.push(object.cleanedText);
+  } else {
+    parts.push(object.content);
+  }
+  if (object.objectType) parts.push(object.objectType);
+  if (object.domain && object.domain !== 'unknown') parts.push(object.domain);
+  if (object.metadata?.tags?.length) parts.push(object.metadata.tags.join(' '));
+
+  return parts.filter(Boolean).join(' ');
+}
 
 /**
  * Generate embeddings using OpenAI
@@ -20,21 +42,17 @@ async function generateEmbedding(text: string): Promise<number[]> {
   try {
     const response = await axios.post(
       'https://api.openai.com/v1/embeddings',
-      {
-        input: text,
-        model: model,
-      },
+      { input: text, model },
       {
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
       }
     );
-
     return response.data.data[0].embedding;
   } catch (error: any) {
-    console.error('Error generating embedding:', error.response?.data || error.message);
+    console.error('[vectorService] Error generating embedding:', error.response?.data || error.message);
     throw new Error('Failed to generate embedding');
   }
 }
@@ -43,39 +61,50 @@ async function generateEmbedding(text: string): Promise<number[]> {
  * Store atomic object in Weaviate
  */
 export async function storeInVector(object: AtomicObject): Promise<void> {
-  const client = getWeaviateClient();
+  const c = getWeaviateClient();
 
-  // Generate embedding for the content
-  const embedding = await generateEmbedding(object.content);
+  const embeddingText = buildEmbeddingText(object);
+  const embedding = await generateEmbedding(embeddingText);
 
-  // Extract entity values for easier searching
-  const entityValues = (Array.isArray(object.metadata.entities) ? object.metadata.entities : []).map((e) => e.value);
+  const entityValues = (Array.isArray(object.metadata?.entities) ? object.metadata.entities : [])
+    .map((e) => e.value);
 
-  // Prepare data object
-  const dataObject = {
+  const dataObject: Record<string, any> = {
     objectId: object.id,
     userId: object.userId,
-    content: object.content,
-    category: object.category,
-    sourceType: object.source.type,
+    content: object.cleanedText || object.content,
+    title: object.title ?? null,
+    category: object.category ?? [],
+    objectType: object.objectType ?? null,
+    domain: object.domain ?? 'unknown',
+    sourceType: object.source?.type ?? 'voice',
+    sourceTranscriptId: object.source?.recordingId ?? null,
     entities: entityValues,
-    sentiment: object.metadata.sentiment,
-    urgency: object.metadata.urgency,
-    tags: object.metadata.tags,
+    sentiment: object.metadata?.sentiment ?? null,
+    urgency: object.metadata?.urgency ?? null,
+    isActionable: object.actionability?.isActionable ?? false,
+    tags: object.metadata?.tags ?? [],
+    sequenceIndex: object.sequenceIndex ?? 0,
     createdAt: new Date(object.createdAt).getTime(),
   };
 
+  // Remove null values to avoid Weaviate issues
+  for (const key of Object.keys(dataObject)) {
+    if (dataObject[key] === null || dataObject[key] === undefined) {
+      delete dataObject[key];
+    }
+  }
+
   try {
-    await client.data
+    await c.data
       .creator()
       .withClassName('AtomicObject')
       .withProperties(dataObject)
       .withVector(embedding)
       .do();
-
-    console.log(`✅ Stored object ${object.id} in Weaviate`);
+    console.log(`[vectorService] ✅ Stored object ${object.id} in Weaviate`);
   } catch (error) {
-    console.error('Error storing in Weaviate:', error);
+    console.error('[vectorService] Error storing in Weaviate:', error);
     throw new Error('Failed to store object in vector database');
   }
 }
@@ -84,58 +113,57 @@ export async function storeInVector(object: AtomicObject): Promise<void> {
  * Update atomic object in Weaviate
  */
 export async function updateInVector(object: AtomicObject): Promise<void> {
-  const client = getWeaviateClient();
+  const c = getWeaviateClient();
 
-  // First, find the Weaviate UUID by objectId
   try {
-    const result = await client.graphql
+    const result = await c.graphql
       .get()
       .withClassName('AtomicObject')
       .withFields('_additional { id }')
-      .withWhere({
-        path: ['objectId'],
-        operator: 'Equal',
-        valueText: object.id,
-      })
+      .withWhere({ path: ['objectId'], operator: 'Equal', valueText: object.id })
       .do();
 
     const weaviateId = result.data.Get.AtomicObject?.[0]?._additional?.id;
 
     if (!weaviateId) {
-      console.warn(`Object ${object.id} not found in Weaviate, creating new entry`);
+      console.warn(`[vectorService] Object ${object.id} not found in Weaviate, creating new entry`);
       await storeInVector(object);
       return;
     }
 
-    // Generate new embedding
-    const embedding = await generateEmbedding(object.content);
+    const embeddingText = buildEmbeddingText(object);
+    const embedding = await generateEmbedding(embeddingText);
+    const entityValues = (Array.isArray(object.metadata?.entities) ? object.metadata.entities : [])
+      .map((e) => e.value);
 
-    // Extract entity values
-    const entityValues = (Array.isArray(object.metadata.entities) ? object.metadata.entities : []).map((e) => e.value);
-
-    // Update the object
-    await client.data
+    await c.data
       .updater()
       .withId(weaviateId)
       .withClassName('AtomicObject')
       .withProperties({
         objectId: object.id,
         userId: object.userId,
-        content: object.content,
+        content: object.cleanedText || object.content,
+        title: object.title,
         category: object.category,
-        sourceType: object.source.type,
+        objectType: object.objectType,
+        domain: object.domain,
+        sourceType: object.source?.type,
+        sourceTranscriptId: object.source?.recordingId,
         entities: entityValues,
-        sentiment: object.metadata.sentiment,
-        urgency: object.metadata.urgency,
-        tags: object.metadata.tags,
+        sentiment: object.metadata?.sentiment,
+        urgency: object.metadata?.urgency,
+        isActionable: object.actionability?.isActionable ?? false,
+        tags: object.metadata?.tags ?? [],
+        sequenceIndex: object.sequenceIndex ?? 0,
         createdAt: new Date(object.createdAt).getTime(),
       })
       .withVector(embedding)
       .do();
 
-    console.log(`✅ Updated object ${object.id} in Weaviate`);
+    console.log(`[vectorService] ✅ Updated object ${object.id} in Weaviate`);
   } catch (error) {
-    console.error('Error updating in Weaviate:', error);
+    console.error('[vectorService] Error updating in Weaviate:', error);
     throw new Error('Failed to update object in vector database');
   }
 }
@@ -144,33 +172,27 @@ export async function updateInVector(object: AtomicObject): Promise<void> {
  * Delete atomic object from Weaviate
  */
 export async function deleteFromVector(objectId: string): Promise<void> {
-  const client = getWeaviateClient();
+  const c = getWeaviateClient();
 
   try {
-    // Find the Weaviate UUID by objectId
-    const result = await client.graphql
+    const result = await c.graphql
       .get()
       .withClassName('AtomicObject')
       .withFields('_additional { id }')
-      .withWhere({
-        path: ['objectId'],
-        operator: 'Equal',
-        valueText: objectId,
-      })
+      .withWhere({ path: ['objectId'], operator: 'Equal', valueText: objectId })
       .do();
 
     const weaviateId = result.data.Get.AtomicObject?.[0]?._additional?.id;
 
     if (!weaviateId) {
-      console.warn(`Object ${objectId} not found in Weaviate`);
+      console.warn(`[vectorService] Object ${objectId} not found in Weaviate`);
       return;
     }
 
-    await client.data.deleter().withId(weaviateId).do();
-
-    console.log(`✅ Deleted object ${objectId} from Weaviate`);
+    await c.data.deleter().withId(weaviateId).do();
+    console.log(`[vectorService] ✅ Deleted object ${objectId} from Weaviate`);
   } catch (error) {
-    console.error('Error deleting from Weaviate:', error);
+    console.error('[vectorService] Error deleting from Weaviate:', error);
     throw new Error('Failed to delete object from vector database');
   }
 }
@@ -182,10 +204,14 @@ export interface SemanticSearchOptions {
   userId: string;
   query: string;
   limit?: number;
+  // filters
+  objectType?: string[];
+  domain?: string[];
   category?: string[];
+  urgency?: 'low' | 'medium' | 'high';
+  isActionable?: boolean;
   dateFrom?: Date;
   dateTo?: Date;
-  urgency?: 'low' | 'medium' | 'high';
 }
 
 /**
@@ -194,8 +220,8 @@ export interface SemanticSearchOptions {
 export interface SemanticSearchResult {
   objectId: string;
   content: string;
-  distance: number; // Cosine distance (0 = identical, 2 = opposite)
-  score: number; // Similarity score (0-1, where 1 is most similar)
+  distance: number;
+  score: number; // 0-1, higher is more similar
 }
 
 /**
@@ -204,22 +230,31 @@ export interface SemanticSearchResult {
 export async function semanticSearch(
   options: SemanticSearchOptions
 ): Promise<SemanticSearchResult[]> {
-  const client = getWeaviateClient();
+  const c = getWeaviateClient();
   const limit = options.limit || 10;
 
-  // Generate embedding for the query
   const queryEmbedding = await generateEmbedding(options.query);
 
-  // Build where filter
   const whereFilters: any[] = [
-    {
-      path: ['userId'],
-      operator: 'Equal',
-      valueText: options.userId,
-    },
+    { path: ['userId'], operator: 'Equal', valueText: options.userId },
   ];
 
-  // Add category filter if provided
+  if (options.objectType && options.objectType.length > 0) {
+    whereFilters.push({
+      path: ['objectType'],
+      operator: 'ContainsAny',
+      valueTextArray: options.objectType,
+    });
+  }
+
+  if (options.domain && options.domain.length > 0) {
+    whereFilters.push({
+      path: ['domain'],
+      operator: 'ContainsAny',
+      valueTextArray: options.domain,
+    });
+  }
+
   if (options.category && options.category.length > 0) {
     whereFilters.push({
       path: ['category'],
@@ -228,16 +263,18 @@ export async function semanticSearch(
     });
   }
 
-  // Add urgency filter if provided
   if (options.urgency) {
+    whereFilters.push({ path: ['urgency'], operator: 'Equal', valueText: options.urgency });
+  }
+
+  if (options.isActionable !== undefined) {
     whereFilters.push({
-      path: ['urgency'],
+      path: ['isActionable'],
       operator: 'Equal',
-      valueText: options.urgency,
+      valueBoolean: options.isActionable,
     });
   }
 
-  // Add date range filter if provided
   if (options.dateFrom) {
     whereFilters.push({
       path: ['createdAt'],
@@ -254,23 +291,17 @@ export async function semanticSearch(
     });
   }
 
-  // Combine filters with AND operator
   const whereFilter =
     whereFilters.length > 1
-      ? {
-          operator: 'And',
-          operands: whereFilters,
-        }
+      ? { operator: 'And', operands: whereFilters }
       : whereFilters[0];
 
   try {
-    const result = await client.graphql
+    const result = await c.graphql
       .get()
       .withClassName('AtomicObject')
       .withFields('objectId content _additional { distance }')
-      .withNearVector({
-        vector: queryEmbedding,
-      })
+      .withNearVector({ vector: queryEmbedding })
       .withLimit(limit)
       .withWhere(whereFilter)
       .do();
@@ -281,54 +312,42 @@ export async function semanticSearch(
       objectId: obj.objectId,
       content: obj.content,
       distance: obj._additional.distance,
-      score: 1 - obj._additional.distance / 2, // Convert distance to similarity score
+      score: Math.max(0, 1 - obj._additional.distance / 2),
     }));
   } catch (error) {
-    console.error('Error performing semantic search:', error);
+    console.error('[vectorService] Error performing semantic search:', error);
     throw new Error('Failed to perform semantic search');
   }
 }
 
 /**
- * Find similar atomic objects
+ * Find similar atomic objects to a given objectId
  */
 export async function findSimilar(
   objectId: string,
   userId: string,
   limit: number = 5
 ): Promise<SemanticSearchResult[]> {
-  const client = getWeaviateClient();
+  const c = getWeaviateClient();
 
   try {
-    // First get the object's content to generate embedding
-    const objectResult = await client.graphql
+    const objectResult = await c.graphql
       .get()
       .withClassName('AtomicObject')
       .withFields('content')
-      .withWhere({
-        path: ['objectId'],
-        operator: 'Equal',
-        valueText: objectId,
-      })
+      .withWhere({ path: ['objectId'], operator: 'Equal', valueText: objectId })
       .do();
 
     const content = objectResult.data.Get.AtomicObject?.[0]?.content;
-
     if (!content) {
       throw new Error('Object not found in Weaviate');
     }
 
-    // Use semantic search to find similar objects
-    return await semanticSearch({
-      userId,
-      query: content,
-      limit: limit + 1, // +1 to account for the object itself
-    }).then((results) =>
-      // Filter out the original object
+    return await semanticSearch({ userId, query: content, limit: limit + 1 }).then((results) =>
       results.filter((r) => r.objectId !== objectId).slice(0, limit)
     );
   } catch (error) {
-    console.error('Error finding similar objects:', error);
+    console.error('[vectorService] Error finding similar objects:', error);
     throw new Error('Failed to find similar objects');
   }
 }

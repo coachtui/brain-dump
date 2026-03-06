@@ -127,18 +127,36 @@ router.post('/save-transcript', async (req: Request, res: Response) => {
           console.log('[Voice] ML parsed', parseResult.atomicObjects.length, 'objects');
 
           for (const parsedObject of parseResult.atomicObjects) {
+            // Convert entity names to Entity[] for metadata storage
+            const entityObjects = parsedObject.entities.map((name) => ({
+              type: 'other' as const,
+              value: name,
+              confidence: 1.0,
+            }));
+
             const object = await createObject(userId, {
-              content: parsedObject.content,
-              category: parsedObject.category,
+              content: parsedObject.cleanedText || parsedObject.rawText,
+              category: [],
               source: {
                 type: 'voice',
                 recordingId: session.id,
                 location: geoLocation,
               },
               metadata: {
+                entities: entityObjects,
                 tags: parsedObject.tags,
-                urgency: parsedObject.urgency,
+                urgency: parsedObject.temporalHints.urgency || undefined,
               },
+              // v2 rich fields
+              rawText: parsedObject.rawText,
+              cleanedText: parsedObject.cleanedText,
+              title: parsedObject.title,
+              objectType: parsedObject.type,
+              domain: parsedObject.domain,
+              temporalHints: parsedObject.temporalHints,
+              locationHints: parsedObject.locationHints,
+              actionability: parsedObject.actionability,
+              sequenceIndex: parsedObject.sequenceIndex,
             });
             objectIds.push(object.id);
           }

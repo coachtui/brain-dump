@@ -1,5 +1,5 @@
 """
-Transcript parsing models
+Transcript parsing models — v2 rich atomic object schema
 """
 
 from pydantic import BaseModel, Field
@@ -7,22 +7,45 @@ from typing import List, Optional, Literal
 from datetime import datetime
 
 
-class Entity(BaseModel):
-    """Extracted entity from text"""
-    type: Literal["person", "place", "organization", "task", "date", "other"]
-    value: str
-    confidence: float = Field(ge=0, le=1)
+class TemporalHints(BaseModel):
+    has_date: bool = False
+    date_text: Optional[str] = None
+    urgency: Optional[Literal["low", "medium", "high"]] = None
+
+
+class LocationHints(BaseModel):
+    places: List[str] = Field(default_factory=list)
+    geofence_candidate: bool = False
+
+
+class Actionability(BaseModel):
+    is_actionable: bool = False
+    next_action: Optional[str] = None
 
 
 class AtomicObjectParsed(BaseModel):
-    """Parsed atomic object from transcript"""
-    content: str = Field(..., description="The atomic piece of information")
-    category: List[Literal["Business", "Personal", "Fitness", "Health", "Family", "Finance", "Learning", "Social", "Other"]] = Field(default_factory=list)
-    confidence: float = Field(ge=0, le=1, description="Parser confidence in this object")
-    entities: List[Entity] = Field(default_factory=list)
-    sentiment: Optional[Literal["positive", "neutral", "negative"]] = None
-    urgency: Optional[Literal["low", "medium", "high"]] = None
-    tags: List[str] = Field(default_factory=list)
+    """Rich atomic object parsed from a transcript"""
+    raw_text: str = Field(..., description="Verbatim or near-verbatim excerpt from transcript")
+    cleaned_text: str = Field(..., description="Cleaned, normalized version suitable for display")
+    title: Optional[str] = Field(None, description="Short title max 8 words, or null if text is already concise")
+    type: Literal[
+        "task", "reminder", "idea", "observation",
+        "question", "decision", "journal", "reference"
+    ] = Field(..., description="Type of thought unit")
+    domain: Literal[
+        "work", "personal", "health", "family",
+        "finance", "project", "misc", "unknown"
+    ] = Field("unknown", description="Life domain this thought belongs to")
+    tags: List[str] = Field(default_factory=list, description="2-5 lowercase tags for search")
+    entities: List[str] = Field(
+        default_factory=list,
+        description="Named entities as strings: people, places, orgs, products"
+    )
+    confidence: float = Field(ge=0, le=1, description="Parser confidence 0-1")
+    temporal_hints: TemporalHints = Field(default_factory=TemporalHints)
+    location_hints: LocationHints = Field(default_factory=LocationHints)
+    actionability: Actionability = Field(default_factory=Actionability)
+    sequence_index: int = Field(0, description="Position in transcript (set by parser after parsing)")
 
 
 class TranscriptParseRequest(BaseModel):

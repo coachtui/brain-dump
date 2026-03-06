@@ -65,6 +65,7 @@ import geofenceRoutes from './routes/geofences';
 import voiceRoutes from './routes/voice';
 import searchRoutes from './routes/search';
 import aiRoutes from './routes/ai';
+import ragRoutes from './routes/rag';
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/objects', objectRoutes);
@@ -72,6 +73,7 @@ app.use('/api/v1/geofences', geofenceRoutes);
 app.use('/api/v1/voice', voiceRoutes);
 app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/ai', aiRoutes);
+app.use('/api/v1/rag', ragRoutes);
 
 app.get('/api/v1', (req, res) => {
   res.json({
@@ -85,6 +87,7 @@ app.get('/api/v1', (req, res) => {
       voice: '/api/v1/voice',
       search: '/api/v1/search',
       ai: '/api/v1/ai',
+      rag: '/api/v1/rag',
     },
   });
 });

@@ -1,5 +1,6 @@
 /**
- * Object service - business logic for atomic objects
+ * Object service — business logic for atomic objects
+ * v2: rich schema, embedding status tracking
  */
 
 import { AtomicObjectModel } from '../models/AtomicObject';
@@ -18,25 +19,64 @@ import {
   type SemanticSearchResult,
 } from './vectorService';
 
-// Validation schemas
+// Validation schema for createObject input
 export const createObjectSchema = z.object({
   content: z.string().min(1, 'Content is required'),
-  category: z.array(z.enum(['business', 'personal', 'fitness', 'health', 'family', 'finance', 'education', 'other'])).optional(),
+  category: z
+    .array(z.enum(['business', 'personal', 'fitness', 'health', 'family', 'finance', 'education', 'other']))
+    .optional(),
   source: z.object({
     type: z.enum(['voice', 'text', 'import']),
     recordingId: z.string().uuid().optional(),
-    location: z.object({
-      latitude: z.number(),
-      longitude: z.number(),
-      accuracy: z.number().optional(),
-      altitude: z.number().optional(),
-      timestamp: z.number().optional(),
-    }).optional(),
+    location: z
+      .object({
+        latitude: z.number(),
+        longitude: z.number(),
+        accuracy: z.number().optional(),
+        altitude: z.number().optional(),
+        timestamp: z.number().optional(),
+      })
+      .optional(),
   }),
-  metadata: z.object({
-    tags: z.array(z.string()).optional(),
-    urgency: z.enum(['low', 'medium', 'high']).optional(),
-  }).optional(),
+  metadata: z
+    .object({
+      entities: z.array(z.any()).optional(),
+      tags: z.array(z.string()).optional(),
+      urgency: z.enum(['low', 'medium', 'high']).optional(),
+      sentiment: z.enum(['positive', 'neutral', 'negative']).optional(),
+    })
+    .optional(),
+  // v2 rich fields (all optional for backward compat)
+  rawText: z.string().nullable().optional(),
+  cleanedText: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  objectType: z
+    .enum(['task', 'reminder', 'idea', 'observation', 'question', 'decision', 'journal', 'reference'])
+    .nullable()
+    .optional(),
+  domain: z
+    .enum(['work', 'personal', 'health', 'family', 'finance', 'project', 'misc', 'unknown'])
+    .optional(),
+  temporalHints: z
+    .object({
+      hasDate: z.boolean(),
+      dateText: z.string().nullable(),
+      urgency: z.enum(['low', 'medium', 'high']).nullable(),
+    })
+    .optional(),
+  locationHints: z
+    .object({
+      places: z.array(z.string()),
+      geofenceCandidate: z.boolean(),
+    })
+    .optional(),
+  actionability: z
+    .object({
+      isActionable: z.boolean(),
+      nextAction: z.string().nullable(),
+    })
+    .optional(),
+  sequenceIndex: z.number().int().optional(),
 });
 
 export interface ListObjectsOptions {
@@ -49,24 +89,30 @@ export interface ListObjectsOptions {
 }
 
 /**
- * Create a new atomic object
+ * Create a new atomic object — persists to PostgreSQL then Weaviate
  */
 export async function createObject(
   userId: string,
   input: AtomicObjectCreateRequest
 ): Promise<AtomicObject> {
-  // Validate input
   createObjectSchema.parse(input);
 
   const object = await AtomicObjectModel.create(userId, input);
   const atomicObject = object.toAtomicObject();
 
-  // Store in Weaviate for semantic search (async, don't block)
+  // Store in Weaviate; update embedding_status in PG on success/failure
   try {
     await storeInVector(atomicObject);
+    await AtomicObjectModel.updateEmbeddingStatus(atomicObject.id, 'complete');
+    atomicObject.embeddingStatus = 'complete';
   } catch (error) {
-    console.error('Failed to store in vector database:', error);
-    // Continue even if vector storage fails
+    console.error('[objectService] Failed to store in vector database:', error);
+    try {
+      await AtomicObjectModel.updateEmbeddingStatus(atomicObject.id, 'failed');
+    } catch {
+      // Best-effort status update
+    }
+    atomicObject.embeddingStatus = 'failed';
   }
 
   return atomicObject;
@@ -80,14 +126,8 @@ export async function getObjectById(
   objectId: string
 ): Promise<AtomicObject> {
   const object = await AtomicObjectModel.findById(objectId);
-  if (!object) {
-    throw new Error('Object not found');
-  }
-
-  if (object.userId !== userId) {
-    throw new Error('Unauthorized');
-  }
-
+  if (!object) throw new Error('Object not found');
+  if (object.userId !== userId) throw new Error('Unauthorized');
   return object.toAtomicObject();
 }
 
@@ -106,7 +146,7 @@ export async function listObjects(
   const limit = options.limit || 25;
   const offset = options.offset || 0;
 
-  // If search query is provided, use semantic search via Weaviate
+  // Semantic search path
   if (options.search && options.search.trim().length > 0) {
     try {
       const searchResults = await semanticSearch({
@@ -118,27 +158,21 @@ export async function listObjects(
         dateTo: options.dateTo,
       });
 
-      // Fetch full objects from PostgreSQL using the IDs
       const objectIds = searchResults.map((r) => r.objectId);
-      const objects = await Promise.all(
-        objectIds.map((id) => AtomicObjectModel.findById(id))
-      );
-
-      const validObjects = objects.filter((obj) => obj !== null) as AtomicObjectModel[];
+      const objects = await AtomicObjectModel.findByIds(objectIds);
 
       return {
-        objects: validObjects.map((obj) => obj.toAtomicObject()),
-        total: validObjects.length,
+        objects: objects.map((obj) => obj.toAtomicObject()),
+        total: objects.length,
         limit,
-        offset: 0, // Semantic search doesn't support offset
+        offset: 0,
       };
     } catch (error) {
-      console.error('Semantic search failed, falling back to database:', error);
-      // Fall through to database search below
+      console.error('[objectService] Semantic search failed, falling back to DB:', error);
     }
   }
 
-  // Default: use database filtering
+  // Default: DB filter
   const result = await AtomicObjectModel.findByUserId(userId, {
     category: options.category,
     dateFrom: options.dateFrom,
@@ -170,23 +204,16 @@ export async function updateObject(
   }>
 ): Promise<AtomicObject> {
   const object = await AtomicObjectModel.findById(objectId);
-  if (!object) {
-    throw new Error('Object not found');
-  }
-
-  if (object.userId !== userId) {
-    throw new Error('Unauthorized');
-  }
+  if (!object) throw new Error('Object not found');
+  if (object.userId !== userId) throw new Error('Unauthorized');
 
   const updated = await object.update(updates);
   const atomicObject = updated.toAtomicObject();
 
-  // Update in Weaviate (async, don't block)
   try {
     await updateInVector(atomicObject);
   } catch (error) {
-    console.error('Failed to update in vector database:', error);
-    // Continue even if vector update fails
+    console.error('[objectService] Failed to update in vector database:', error);
   }
 
   return atomicObject;
@@ -195,27 +222,17 @@ export async function updateObject(
 /**
  * Delete object
  */
-export async function deleteObject(
-  userId: string,
-  objectId: string
-): Promise<void> {
+export async function deleteObject(userId: string, objectId: string): Promise<void> {
   const object = await AtomicObjectModel.findById(objectId);
-  if (!object) {
-    throw new Error('Object not found');
-  }
-
-  if (object.userId !== userId) {
-    throw new Error('Unauthorized');
-  }
+  if (!object) throw new Error('Object not found');
+  if (object.userId !== userId) throw new Error('Unauthorized');
 
   await object.delete();
 
-  // Delete from Weaviate (async, don't block)
   try {
     await deleteFromVector(objectId);
   } catch (error) {
-    console.error('Failed to delete from vector database:', error);
-    // Continue even if vector deletion fails
+    console.error('[objectService] Failed to delete from vector database:', error);
   }
 }
 
@@ -227,31 +244,17 @@ export async function findSimilarObjects(
   objectId: string,
   limit: number = 5
 ): Promise<AtomicObject[]> {
-  // Verify the object exists and user has access
   const object = await AtomicObjectModel.findById(objectId);
-  if (!object) {
-    throw new Error('Object not found');
-  }
+  if (!object) throw new Error('Object not found');
+  if (object.userId !== userId) throw new Error('Unauthorized');
 
-  if (object.userId !== userId) {
-    throw new Error('Unauthorized');
-  }
-
-  // Use vector search to find similar objects
   try {
     const similarResults = await findSimilar(objectId, userId, limit);
-
-    // Fetch full objects from PostgreSQL
     const objectIds = similarResults.map((r) => r.objectId);
-    const objects = await Promise.all(
-      objectIds.map((id) => AtomicObjectModel.findById(id))
-    );
-
-    const validObjects = objects.filter((obj) => obj !== null) as AtomicObjectModel[];
-
-    return validObjects.map((obj) => obj.toAtomicObject());
+    const objects = await AtomicObjectModel.findByIds(objectIds);
+    return objects.map((obj) => obj.toAtomicObject());
   } catch (error) {
-    console.error('Failed to find similar objects:', error);
+    console.error('[objectService] Failed to find similar objects:', error);
     throw new Error('Failed to find similar objects');
   }
 }

@@ -1,5 +1,5 @@
 /**
- * AtomicObject model
+ * AtomicObject model — v2 with rich schema
  */
 
 import { query, queryOne, queryMany } from '../db/queries';
@@ -8,12 +8,19 @@ import type {
   Category,
   GeoPoint,
   Entity,
+  ObjectType,
+  ObjectDomain,
+  EmbeddingStatus,
+  TemporalHints,
+  LocationHints,
+  Actionability,
   AtomicObjectCreateRequest,
 } from '@shared/types';
 
 export interface AtomicObjectRow {
   id: string;
   user_id: string;
+  // v1 fields
   content: string;
   category: string[];
   confidence: number;
@@ -31,6 +38,22 @@ export interface AtomicObjectRow {
   relationships_related_objects: string[];
   relationships_contradictions: string[];
   relationships_references: string[];
+  // v2 rich fields
+  raw_text: string | null;
+  cleaned_text: string | null;
+  title: string | null;
+  object_type: ObjectType | null;
+  domain: ObjectDomain;
+  temporal_has_date: boolean;
+  temporal_date_text: string | null;
+  temporal_urgency: 'low' | 'medium' | 'high' | null;
+  location_places: string[];
+  location_geofence_candidate: boolean;
+  is_actionable: boolean;
+  next_action: string | null;
+  linked_object_ids: string[];
+  sequence_index: number;
+  embedding_status: EmbeddingStatus;
   created_at: Date;
   updated_at: Date;
 }
@@ -38,6 +61,7 @@ export interface AtomicObjectRow {
 export class AtomicObjectModel {
   id: string;
   userId: string;
+  // v1 fields
   content: string;
   category: Category[];
   confidence: number;
@@ -58,6 +82,18 @@ export class AtomicObjectModel {
     contradictions: string[];
     references: string[];
   };
+  // v2 rich fields
+  rawText: string | null;
+  cleanedText: string | null;
+  title: string | null;
+  objectType: ObjectType | null;
+  domain: ObjectDomain;
+  temporalHints: TemporalHints;
+  locationHints: LocationHints;
+  actionability: Actionability;
+  linkedObjectIds: string[];
+  sequenceIndex: number;
+  embeddingStatus: EmbeddingStatus;
   createdAt: Date;
   updatedAt: Date;
 
@@ -96,6 +132,28 @@ export class AtomicObjectModel {
       contradictions: row.relationships_contradictions || [],
       references: row.relationships_references || [],
     };
+    // v2 fields
+    this.rawText = row.raw_text ?? null;
+    this.cleanedText = row.cleaned_text ?? null;
+    this.title = row.title ?? null;
+    this.objectType = row.object_type ?? null;
+    this.domain = row.domain ?? 'unknown';
+    this.temporalHints = {
+      hasDate: row.temporal_has_date ?? false,
+      dateText: row.temporal_date_text ?? null,
+      urgency: row.temporal_urgency ?? null,
+    };
+    this.locationHints = {
+      places: row.location_places ?? [],
+      geofenceCandidate: row.location_geofence_candidate ?? false,
+    };
+    this.actionability = {
+      isActionable: row.is_actionable ?? false,
+      nextAction: row.next_action ?? null,
+    };
+    this.linkedObjectIds = row.linked_object_ids ?? [];
+    this.sequenceIndex = row.sequence_index ?? 0;
+    this.embeddingStatus = row.embedding_status ?? 'pending';
     this.createdAt = row.created_at;
     this.updatedAt = row.updated_at;
   }
@@ -109,6 +167,20 @@ export class AtomicObjectModel {
       [id]
     );
     return row ? new AtomicObjectModel(row) : null;
+  }
+
+  /**
+   * Find multiple atomic objects by IDs (batch fetch)
+   */
+  static async findByIds(ids: string[]): Promise<AtomicObjectModel[]> {
+    if (ids.length === 0) return [];
+    const rows = await queryMany<AtomicObjectRow>(
+      'SELECT * FROM hub.atomic_objects WHERE id = ANY($1)',
+      [ids]
+    );
+    // Return in same order as ids array
+    const map = new Map(rows.map((r) => [r.id, new AtomicObjectModel(r)]));
+    return ids.map((id) => map.get(id)).filter(Boolean) as AtomicObjectModel[];
   }
 
   /**
@@ -143,15 +215,12 @@ export class AtomicObjectModel {
       params.push(options.dateTo);
     }
 
-    // Get total count (without ORDER BY)
     const countQuery = queryText.replace('SELECT *', 'SELECT COUNT(*) as count');
     const countResult = await query<{ count: string }>(countQuery, params);
     const total = parseInt(countResult.rows[0].count, 10);
 
-    // Add ORDER BY for actual data query
     queryText += ' ORDER BY created_at DESC';
 
-    // Apply pagination
     if (options?.limit) {
       queryText += ` LIMIT $${paramIndex++}`;
       params.push(options.limit);
@@ -170,12 +239,17 @@ export class AtomicObjectModel {
   }
 
   /**
-   * Create a new atomic object
+   * Create a new atomic object (v2)
    */
   static async create(
     userId: string,
     input: AtomicObjectCreateRequest
   ): Promise<AtomicObjectModel> {
+    // Convert entity string[] to Entity[] for metadata_entities
+    const entityObjects: Entity[] = (input.metadata?.entities ?? []).length > 0
+      ? (input.metadata!.entities as Entity[])
+      : [];
+
     const row = await queryOne<AtomicObjectRow>(
       `INSERT INTO hub.atomic_objects (
         user_id, content, category, confidence,
@@ -183,32 +257,53 @@ export class AtomicObjectModel {
         source_location_latitude, source_location_longitude,
         source_location_accuracy, source_location_altitude,
         metadata_entities, metadata_sentiment, metadata_urgency, metadata_tags,
-        relationships_related_objects, relationships_contradictions, relationships_references
+        relationships_related_objects, relationships_contradictions, relationships_references,
+        raw_text, cleaned_text, title, object_type, domain,
+        temporal_has_date, temporal_date_text, temporal_urgency,
+        location_places, location_geofence_candidate,
+        is_actionable, next_action,
+        linked_object_ids, sequence_index, embedding_status
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+        $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33
       )
       RETURNING *`,
       [
-        userId,
-        input.content,
-        input.category || [],
-        0.5, // Default confidence
-        input.source.type,
-        input.source.recordingId || null,
+        userId,                                                           // $1
+        input.content,                                                    // $2
+        input.category || [],                                             // $3
+        input.metadata?.entities ? 0.5 : 0.5,                            // $4 confidence default
+        input.source.type,                                                // $5
+        input.source.recordingId || null,                                 // $6
         input.source.location?.timestamp
           ? new Date(input.source.location.timestamp)
-          : new Date(),
-        input.source.location?.latitude || null,
-        input.source.location?.longitude || null,
-        input.source.location?.accuracy || null,
-        input.source.location?.altitude || null,
-        input.metadata?.entities || [],
-        input.metadata?.sentiment || null,
-        input.metadata?.urgency || null,
-        input.metadata?.tags || [],
-        [],
-        [],
-        [],
+          : new Date(),                                                   // $7
+        input.source.location?.latitude || null,                          // $8
+        input.source.location?.longitude || null,                         // $9
+        input.source.location?.accuracy || null,                          // $10
+        input.source.location?.altitude || null,                          // $11
+        JSON.stringify(entityObjects),                                    // $12 metadata_entities
+        input.metadata?.sentiment || null,                                // $13
+        input.metadata?.urgency || input.temporalHints?.urgency || null,  // $14
+        input.metadata?.tags || [],                                       // $15
+        [],                                                               // $16 relationships_related_objects
+        [],                                                               // $17 relationships_contradictions
+        [],                                                               // $18 relationships_references
+        input.rawText || null,                                            // $19
+        input.cleanedText || null,                                        // $20
+        input.title || null,                                              // $21
+        input.objectType || null,                                         // $22
+        input.domain || 'unknown',                                        // $23
+        input.temporalHints?.hasDate || false,                            // $24
+        input.temporalHints?.dateText || null,                            // $25
+        input.temporalHints?.urgency || null,                             // $26
+        input.locationHints?.places || [],                                // $27
+        input.locationHints?.geofenceCandidate || false,                  // $28
+        input.actionability?.isActionable || false,                       // $29
+        input.actionability?.nextAction || null,                          // $30
+        [],                                                               // $31 linked_object_ids
+        input.sequenceIndex ?? 0,                                         // $32
+        'pending',                                                        // $33 embedding_status
       ]
     );
 
@@ -217,6 +312,19 @@ export class AtomicObjectModel {
     }
 
     return new AtomicObjectModel(row);
+  }
+
+  /**
+   * Update embedding status
+   */
+  static async updateEmbeddingStatus(
+    id: string,
+    status: EmbeddingStatus
+  ): Promise<void> {
+    await query(
+      'UPDATE hub.atomic_objects SET embedding_status = $1 WHERE id = $2',
+      [status, id]
+    );
   }
 
   /**
@@ -229,6 +337,7 @@ export class AtomicObjectModel {
       confidence: number;
       metadata: Partial<AtomicObjectModel['metadata']>;
       relationships: Partial<AtomicObjectModel['relationships']>;
+      embeddingStatus: EmbeddingStatus;
     }>
   ): Promise<AtomicObjectModel> {
     const updatesList: string[] = [];
@@ -248,6 +357,11 @@ export class AtomicObjectModel {
     if (updates.confidence !== undefined) {
       updatesList.push(`confidence = $${paramIndex++}`);
       values.push(updates.confidence);
+    }
+
+    if (updates.embeddingStatus !== undefined) {
+      updatesList.push(`embedding_status = $${paramIndex++}`);
+      values.push(updates.embeddingStatus);
     }
 
     if (updates.metadata) {
@@ -321,9 +435,31 @@ export class AtomicObjectModel {
       content: this.content,
       category: this.category,
       confidence: this.confidence,
-      source: this.source,
-      metadata: this.metadata,
+      source: {
+        type: this.source.type,
+        recordingId: this.source.recordingId,
+        timestamp: this.source.timestamp.getTime(),
+        location: this.source.location,
+      },
+      metadata: {
+        entities: this.metadata.entities,
+        sentiment: this.metadata.sentiment as any,
+        urgency: this.metadata.urgency as any,
+        tags: this.metadata.tags,
+      },
       relationships: this.relationships,
+      // v2 fields
+      rawText: this.rawText,
+      cleanedText: this.cleanedText,
+      title: this.title,
+      objectType: this.objectType,
+      domain: this.domain,
+      temporalHints: this.temporalHints,
+      locationHints: this.locationHints,
+      actionability: this.actionability,
+      linkedObjectIds: this.linkedObjectIds,
+      sequenceIndex: this.sequenceIndex,
+      embeddingStatus: this.embeddingStatus,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
     };

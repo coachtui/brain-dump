@@ -1,23 +1,39 @@
 /**
- * ML Service client - interfaces with Python ML service for transcript parsing
+ * ML Service client — interfaces with Python ML service for transcript parsing
+ * v2: rich atomic object schema
  */
 
 import axios from 'axios';
-import type { Category, Entity } from '@shared/types';
+import type { ObjectType, ObjectDomain } from '@shared/types';
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 
 /**
- * Parsed atomic object from ML service
+ * Rich parsed atomic object returned by ML service v2
  */
 export interface ParsedAtomicObject {
-  content: string;
-  category: Category[];
-  confidence: number;
-  entities: Entity[];
-  sentiment?: 'positive' | 'neutral' | 'negative';
-  urgency?: 'low' | 'medium' | 'high';
+  rawText: string;
+  cleanedText: string;
+  title: string | null;
+  type: ObjectType;
+  domain: ObjectDomain;
   tags: string[];
+  entities: string[]; // Named entity strings
+  confidence: number;
+  temporalHints: {
+    hasDate: boolean;
+    dateText: string | null;
+    urgency: 'low' | 'medium' | 'high' | null;
+  };
+  locationHints: {
+    places: string[];
+    geofenceCandidate: boolean;
+  };
+  actionability: {
+    isActionable: boolean;
+    nextAction: string | null;
+  };
+  sequenceIndex: number;
 }
 
 /**
@@ -52,6 +68,36 @@ export interface ParseTranscriptResponse {
 }
 
 /**
+ * Map a raw ML response object (snake_case) to ParsedAtomicObject (camelCase)
+ */
+function mapParsedObject(obj: any, fallbackIndex: number): ParsedAtomicObject {
+  return {
+    rawText: obj.raw_text ?? obj.content ?? '',
+    cleanedText: obj.cleaned_text ?? obj.content ?? '',
+    title: obj.title ?? null,
+    type: (obj.type as ObjectType) ?? 'observation',
+    domain: (obj.domain as ObjectDomain) ?? 'unknown',
+    tags: obj.tags ?? [],
+    entities: obj.entities ?? [],
+    confidence: obj.confidence ?? 0.5,
+    temporalHints: {
+      hasDate: obj.temporal_hints?.has_date ?? false,
+      dateText: obj.temporal_hints?.date_text ?? null,
+      urgency: obj.temporal_hints?.urgency ?? null,
+    },
+    locationHints: {
+      places: obj.location_hints?.places ?? [],
+      geofenceCandidate: obj.location_hints?.geofence_candidate ?? false,
+    },
+    actionability: {
+      isActionable: obj.actionability?.is_actionable ?? false,
+      nextAction: obj.actionability?.next_action ?? null,
+    },
+    sequenceIndex: obj.sequence_index ?? fallbackIndex,
+  };
+}
+
+/**
  * Parse transcript into atomic objects using ML service
  */
 export async function parseTranscript(
@@ -59,7 +105,7 @@ export async function parseTranscript(
 ): Promise<ParseTranscriptResponse> {
   try {
     const response = await axios.post<{
-      atomic_objects: ParsedAtomicObject[];
+      atomic_objects: any[];
       summary?: string;
       processing_time: number;
       model_used: string;
@@ -74,21 +120,21 @@ export async function parseTranscript(
         context: request.context,
       },
       {
-        timeout: 60000, // 60 second timeout
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        timeout: 60000,
+        headers: { 'Content-Type': 'application/json' },
       }
     );
 
     return {
-      atomicObjects: response.data.atomic_objects,
+      atomicObjects: response.data.atomic_objects.map((obj, i) =>
+        mapParsedObject(obj, i)
+      ),
       summary: response.data.summary,
       processingTime: response.data.processing_time,
       modelUsed: response.data.model_used,
     };
   } catch (error: any) {
-    console.error('Error calling ML service:', error.response?.data || error.message);
+    console.error('[mlService] Error calling ML service:', error.response?.data || error.message);
 
     if (error.code === 'ECONNREFUSED') {
       throw new Error('ML service is not available. Please ensure it is running.');
@@ -113,12 +159,10 @@ export async function parseTranscript(
  */
 export async function checkMLServiceHealth(): Promise<boolean> {
   try {
-    const response = await axios.get(`${ML_SERVICE_URL}/health`, {
-      timeout: 5000,
-    });
+    const response = await axios.get(`${ML_SERVICE_URL}/health`, { timeout: 5000 });
     return response.data.status === 'ok';
   } catch (error) {
-    console.error('ML service health check failed:', error);
+    console.error('[mlService] Health check failed:', error);
     return false;
   }
 }
@@ -131,7 +175,7 @@ export async function getMLServiceInfo(): Promise<any> {
     const response = await axios.get(`${ML_SERVICE_URL}/`);
     return response.data;
   } catch (error) {
-    console.error('Failed to get ML service info:', error);
+    console.error('[mlService] Failed to get info:', error);
     throw new Error('ML service not available');
   }
 }

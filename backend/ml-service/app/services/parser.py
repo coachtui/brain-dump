@@ -1,5 +1,5 @@
 """
-Transcript parser service using LLM
+Transcript parser service using LLM — v2 rich schema
 """
 
 import json
@@ -16,12 +16,12 @@ from ..prompts.transcript_parser import (
 
 
 class TranscriptParser:
-    """Parser for converting transcripts into atomic objects"""
+    """Parser for converting transcripts into rich atomic objects"""
 
     def __init__(self):
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-        self.model = os.getenv("LLM_MODEL", "gpt-4-turbo")
+        self.model = os.getenv("LLM_MODEL", "gpt-4o")
         self.use_anthropic = self.model.startswith("claude")
 
         if not self.openai_api_key and not self.anthropic_api_key:
@@ -30,23 +30,19 @@ class TranscriptParser:
     async def parse_transcript(
         self,
         request: TranscriptParseRequest
-    ) -> tuple[List[AtomicObjectParsed], str]:
+    ) -> tuple[List[AtomicObjectParsed], str, float]:
         """
-        Parse transcript into atomic objects
-
-        Returns:
-            tuple: (list of parsed objects, model used)
+        Parse transcript into rich atomic objects.
+        Returns: (list of parsed objects, model used, processing time in seconds)
         """
         start_time = time.time()
 
-        # Use Anthropic Claude or OpenAI GPT
         if self.use_anthropic:
             atomic_objects = await self._parse_with_claude(request)
         else:
             atomic_objects = await self._parse_with_openai(request)
 
         processing_time = time.time() - start_time
-
         return atomic_objects, self.model, processing_time
 
     async def _parse_with_openai(
@@ -61,26 +57,18 @@ class TranscriptParser:
             "Content-Type": "application/json"
         }
 
-        # Build messages
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-        ]
-
-        # Add few-shot examples
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(create_few_shot_examples())
-
-        # Add user request
-        user_prompt = create_user_prompt(
-            request.transcript,
-            request.context
-        )
-        messages.append({"role": "user", "content": user_prompt})
+        messages.append({
+            "role": "user",
+            "content": create_user_prompt(request.transcript, request.context)
+        })
 
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.3,  # Lower temperature for more consistent parsing
-            "response_format": {"type": "json_object"} if self.model == "gpt-4-turbo" else None
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
         }
 
         try:
@@ -90,25 +78,7 @@ class TranscriptParser:
 
                 result = response.json()
                 content = result["choices"][0]["message"]["content"]
-
-                # Parse JSON response
-                parsed_data = json.loads(content)
-
-                # Handle both direct array and wrapped response
-                if isinstance(parsed_data, list):
-                    objects_data = parsed_data
-                elif isinstance(parsed_data, dict) and "atomic_objects" in parsed_data:
-                    objects_data = parsed_data["atomic_objects"]
-                else:
-                    raise ValueError(f"Unexpected response format: {parsed_data}")
-
-                # Convert to Pydantic models
-                atomic_objects = [
-                    AtomicObjectParsed(**obj)
-                    for obj in objects_data
-                ]
-
-                return atomic_objects
+                return self._parse_json_response(content)
 
         except Exception as e:
             print(f"Error parsing with OpenAI: {e}")
@@ -127,24 +97,20 @@ class TranscriptParser:
             "anthropic-version": "2023-06-01"
         }
 
-        # Build user prompt with system context
-        user_prompt = f"{SYSTEM_PROMPT}\n\n{create_user_prompt(request.transcript, request.context)}"
+        user_prompt = create_user_prompt(request.transcript, request.context)
 
-        # Add few-shot examples
-        examples = create_few_shot_examples()
-        for example in examples:
-            if example["role"] == "user":
-                user_prompt += f"\n\nExample input:\n{example['content']}"
-            elif example["role"] == "assistant":
-                user_prompt += f"\n\nExample output:\n{example['content']}"
+        # Build messages with few-shot examples
+        messages = []
+        for ex in create_few_shot_examples():
+            messages.append(ex)
+        messages.append({"role": "user", "content": user_prompt})
 
         payload = {
             "model": self.model,
             "max_tokens": 4096,
-            "temperature": 0.3,
-            "messages": [
-                {"role": "user", "content": user_prompt}
-            ]
+            "temperature": 0.2,
+            "system": SYSTEM_PROMPT,
+            "messages": messages,
         }
 
         try:
@@ -154,39 +120,41 @@ class TranscriptParser:
 
                 result = response.json()
                 content = result["content"][0]["text"]
-
-                # Parse JSON response
-                # Claude might wrap in markdown, so strip that
-                content = content.strip()
-                if content.startswith("```json"):
-                    content = content[7:]
-                if content.startswith("```"):
-                    content = content[3:]
-                if content.endswith("```"):
-                    content = content[:-3]
-                content = content.strip()
-
-                parsed_data = json.loads(content)
-
-                # Handle both direct array and wrapped response
-                if isinstance(parsed_data, list):
-                    objects_data = parsed_data
-                elif isinstance(parsed_data, dict) and "atomic_objects" in parsed_data:
-                    objects_data = parsed_data["atomic_objects"]
-                else:
-                    raise ValueError(f"Unexpected response format: {parsed_data}")
-
-                # Convert to Pydantic models
-                atomic_objects = [
-                    AtomicObjectParsed(**obj)
-                    for obj in objects_data
-                ]
-
-                return atomic_objects
+                return self._parse_json_response(content)
 
         except Exception as e:
             print(f"Error parsing with Claude: {e}")
             raise RuntimeError(f"Failed to parse transcript with Claude: {str(e)}")
+
+    def _parse_json_response(self, content: str) -> List[AtomicObjectParsed]:
+        """Parse JSON response string into AtomicObjectParsed list, set sequence_index."""
+        content = content.strip()
+        # Strip markdown fences if present
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+
+        parsed_data = json.loads(content)
+
+        # Accept both {"atomic_objects": [...]} and plain [...]
+        if isinstance(parsed_data, list):
+            objects_data = parsed_data
+        elif isinstance(parsed_data, dict) and "atomic_objects" in parsed_data:
+            objects_data = parsed_data["atomic_objects"]
+        else:
+            raise ValueError(f"Unexpected response format: {type(parsed_data)}")
+
+        # Convert to Pydantic models; assign sequence_index from position
+        atomic_objects = []
+        for i, obj_data in enumerate(objects_data):
+            obj_data["sequence_index"] = i
+            atomic_objects.append(AtomicObjectParsed(**obj_data))
+
+        return atomic_objects
 
 
 # Singleton instance
