@@ -40,6 +40,18 @@ router.get('/', async (req: Request, res: Response) => {
           : [req.query.category]) as string[]
       : undefined;
 
+    const domain = req.query.domain
+      ? (Array.isArray(req.query.domain)
+          ? req.query.domain
+          : [req.query.domain]) as string[]
+      : undefined;
+
+    const objectType = req.query.objectType
+      ? (Array.isArray(req.query.objectType)
+          ? req.query.objectType
+          : [req.query.objectType]) as string[]
+      : undefined;
+
     const dateFrom = req.query.dateFrom
       ? new Date(req.query.dateFrom as string)
       : undefined;
@@ -56,6 +68,8 @@ router.get('/', async (req: Request, res: Response) => {
 
     const result = await listObjects(req.user.id, {
       category: category as any,
+      domain,
+      objectType,
       dateFrom,
       dateTo,
       search: req.query.search as string,

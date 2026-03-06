@@ -24,10 +24,13 @@
 - ✅ **Object Storage**: AWS S3 (`brain-dump-api` bucket)
 - ✅ **Database**: PostgreSQL on Railway, migrations 001 (base) + 002 (atomic v2 schema)
 
+### In Progress
+- 🔧 **WebSocket Voice Path (alternative to Deepgram)**: Infrastructure committed but not yet wired up. Backend handlers/services are in place; `index.ts` not yet updated to mount the WSS, and mobile `useVoice.ts` hook excluded. See "WebSocket Voice Flow" below.
+
 ### What's NOT Working / Not Yet Built
 - ❌ **No embedding retry**: `embedding_status = 'failed'` objects are stranded. Backfill script exists (`generate-embeddings.ts`) but no automated retry.
 - ❌ **Geofencing**: DB models + `GeofencesScreen` exist, but no background location tracking, no geofence evaluation on location change, no push notifications.
-- ❌ **Audio storage**: S3 upload path exists but Deepgram flow bypasses it — audio never hits the backend. Audio is not stored.
+- ❌ **Audio storage**: S3 upload path exists but Deepgram flow bypasses it — audio never hits the backend. Audio is not stored. (The new WebSocket flow via Whisper would fix this — audio goes through backend.)
 - ❌ **Cross-domain synthesis**: Weekly agentic workflow not implemented.
 - ❌ **E2EE**: Designed, not implemented.
 
@@ -58,6 +61,24 @@ RecordScreen
   → stopRecording() → POST /api/v1/voice/save-transcript
   → Backend: create session → ML parse → create atomic_objects → session='completed'
 ```
+
+### WebSocket Voice Flow (in progress — not yet wired into index.ts)
+```
+Mobile useVoice hook (excluded from commit — needs wiring)
+  → wsService.connect(token)  → WSS wss://backend/ws/voice?token=JWT
+  → WebSocket messages: start_session | audio_chunk (base64) | stop_session
+  → voiceHandler.ts (auth + rate limiting)
+  → voiceSessionService.ts: startSession → StreamingTranscriber → processAudioChunk
+  → transcriptionService.ts: Whisper API (whisper-1) → TranscriptionResult
+  → S3: upload chunks → merge on stop
+  → ML parse → createObject → atomic_objects
+  → WS response: { type: 'session_stopped', sessionId, transcript, audioUrl, objectId }
+```
+Key differences from current Deepgram flow:
+- Audio goes through backend → S3 storage is preserved
+- Transcription via OpenAI Whisper (not Deepgram WebSocket)
+- Real-time partial transcripts streamed back over same WS connection
+- Rate limiting: per-IP connection limit, per-message limit, per-user session limit
 
 ### RAG / Sparring Flow
 ```
@@ -97,6 +118,8 @@ User query (mobile or API)
 - `mobile/src/screens/ObjectsScreen.tsx` — atomic objects browser
 - `mobile/src/screens/SearchScreen.tsx` — semantic search UI
 - `mobile/src/screens/AIQueryScreen.tsx` — AI sparring UI
+- `mobile/src/services/websocket.ts` — WS client service (connect, send, reconnect, ping)
+- `mobile/src/hooks/useVoice.ts` — WS-based recording hook (NOT committed — needs wiring)
 
 ### Backend
 - `backend/api/src/routes/voice.ts` — all voice endpoints
@@ -106,11 +129,17 @@ User query (mobile or API)
 - `backend/api/src/services/vectorService.ts` — Weaviate semantic search
 - `backend/api/src/services/mlService.ts` — ML service client (parses transcripts)
 - `backend/api/src/services/ragService.ts` — additional RAG utilities
+- `backend/api/src/services/transcriptionService.ts` — OpenAI Whisper transcription (streaming + batch)
+- `backend/api/src/services/voiceSessionService.ts` — in-memory active session management for WS flow
+- `backend/api/src/websocket/voiceHandler.ts` — WS server handler (auth, rate limiting, message routing)
+- `backend/api/src/utils/audioValidator.ts` — audio chunk validation
+- `backend/api/src/utils/rateLimiter.ts` — connection/message/session rate limiters
 - `backend/api/src/models/AtomicObject.ts` — AtomicObject DB model
 - `backend/api/src/models/Session.ts` — Session DB model
 - `backend/api/src/auth/jwt.ts` — JWT sign/verify
 - `backend/api/src/auth/middleware.ts` — authenticate middleware
 - `backend/api/src/scripts/generate-embeddings.ts` — backfill embeddings script
+- `backend/api/db-config.ts` — pg-migrate DB config (moved from migrations/)
 
 ---
 
@@ -134,6 +163,8 @@ Embedding text: `[title, cleanedText, objectType, domain, tags].join(' ')`
 - Mobile `.env`: points to Railway production `https://brain-dump-production-895b.up.railway.app`
 - Railway env vars needed: `JWT_SECRET`, `DATABASE_URL`, `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`), `WEAVIATE_*`, `AWS_*`
 - `SPAR_MODEL` env var to override LLM model
+- `WHISPER_MODEL` env var to override Whisper model (default: `whisper-1`)
+- `EXPO_PUBLIC_WS_URL` mobile env var for WebSocket base URL (default: `ws://localhost:3000`)
 
 ---
 
@@ -142,6 +173,12 @@ Embedding text: `[title, cleanedText, objectType, domain, tags].join(' ')`
 ### ✅ P0 — Auto-Embedding on Save (DONE)
 ### ✅ P1 — Wire Mobile to RAG (DONE)
 ### ✅ P1.5 — Proactive Surfacing: Contradiction Detection + Related Notes + Stale Actionables (DONE)
+
+### P1.6 — Wire WebSocket Voice Path (infrastructure done, needs wiring)
+- Mount WSS in `index.ts` (add `WebSocketServer` + call `setupVoiceWebSocket`)
+- Add `EXPO_PUBLIC_WS_URL` to mobile `.env`
+- Commit `mobile/src/hooks/useVoice.ts` and wire `RecordScreen` to use it instead of `useDeepgramTranscription`
+- Test end-to-end: connect → stream audio → receive partial transcripts → stop → get atomic object
 
 ### P2 — Geofencing + Proactive Triggers
 - Background location tracking in mobile (expo-location)

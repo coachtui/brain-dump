@@ -81,6 +81,8 @@ export const createObjectSchema = z.object({
 
 export interface ListObjectsOptions {
   category?: Category[];
+  domain?: string[];
+  objectType?: string[];
   dateFrom?: Date;
   dateTo?: Date;
   search?: string;
@@ -154,6 +156,8 @@ export async function listObjects(
         query: options.search,
         limit,
         category: options.category,
+        domain: options.domain,
+        objectType: options.objectType,
         dateFrom: options.dateFrom,
         dateTo: options.dateTo,
       });
@@ -175,6 +179,8 @@ export async function listObjects(
   // Default: DB filter
   const result = await AtomicObjectModel.findByUserId(userId, {
     category: options.category,
+    domain: options.domain,
+    objectType: options.objectType,
     dateFrom: options.dateFrom,
     dateTo: options.dateTo,
     limit,

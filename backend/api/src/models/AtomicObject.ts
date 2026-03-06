@@ -192,6 +192,8 @@ export class AtomicObjectModel {
       limit?: number;
       offset?: number;
       category?: Category[];
+      domain?: string[];
+      objectType?: string[];
       dateFrom?: Date;
       dateTo?: Date;
     }
@@ -203,6 +205,16 @@ export class AtomicObjectModel {
     if (options?.category && options.category.length > 0) {
       queryText += ` AND category && $${paramIndex++}`;
       params.push(options.category);
+    }
+
+    if (options?.domain && options.domain.length > 0) {
+      queryText += ` AND domain = ANY($${paramIndex++})`;
+      params.push(options.domain);
+    }
+
+    if (options?.objectType && options.objectType.length > 0) {
+      queryText += ` AND object_type = ANY($${paramIndex++})`;
+      params.push(options.objectType);
     }
 
     if (options?.dateFrom) {

@@ -235,18 +235,20 @@ class ApiService {
   async getObjects(options: {
     limit?: number;
     offset?: number;
-    category?: string[];
-    search?: string;
+    domain?: string[];
+    objectType?: string[];
     dateFrom?: string;
     dateTo?: string;
   } = {}): Promise<ObjectsListResponse> {
     const params = new URLSearchParams();
     if (options.limit) params.append('limit', options.limit.toString());
     if (options.offset) params.append('offset', options.offset.toString());
-    if (options.category) {
-      options.category.forEach(c => params.append('category', c));
+    if (options.domain) {
+      options.domain.forEach(d => params.append('domain', d));
     }
-    if (options.search) params.append('search', options.search);
+    if (options.objectType) {
+      options.objectType.forEach(t => params.append('objectType', t));
+    }
     if (options.dateFrom) params.append('dateFrom', options.dateFrom);
     if (options.dateTo) params.append('dateTo', options.dateTo);
 

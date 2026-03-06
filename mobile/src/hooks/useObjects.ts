@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiService } from '../services/api';
-import { AtomicObject, Category } from '../types';
+import { AtomicObject } from '../types';
 
 interface ObjectsState {
   objects: AtomicObject[];
@@ -12,8 +12,8 @@ interface ObjectsState {
 }
 
 interface ObjectFilters {
-  category?: Category[];
-  search?: string;
+  domain?: string[];
+  objectType?: string[];
   dateFrom?: string;
   dateTo?: string;
 }
@@ -65,8 +65,8 @@ export function useObjects(): UseObjectsReturn {
       const response = await apiService.getObjects({
         limit: PAGE_SIZE,
         offset: 0,
-        category: filters.category,
-        search: filters.search,
+        domain: filters.domain,
+        objectType: filters.objectType,
         dateFrom: filters.dateFrom,
         dateTo: filters.dateTo,
       });
@@ -99,8 +99,8 @@ export function useObjects(): UseObjectsReturn {
       const response = await apiService.getObjects({
         limit: PAGE_SIZE,
         offset,
-        category: filters.category,
-        search: filters.search,
+        domain: filters.domain,
+        objectType: filters.objectType,
         dateFrom: filters.dateFrom,
         dateTo: filters.dateTo,
       });

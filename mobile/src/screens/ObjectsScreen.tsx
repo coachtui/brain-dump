@@ -18,7 +18,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/types';
 import { useObjects } from '../hooks/useObjects';
-import { AtomicObject, Category } from '../types';
+import { useSearch } from '../hooks/useSearch';
+import { AtomicObject } from '../types';
+import type { RagSearchResult } from '../services/api';
 import { apiService } from '../services/api';
 
 type ObjectsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Objects'>;
@@ -27,26 +29,28 @@ interface Props {
   navigation: ObjectsScreenNavigationProp;
 }
 
-const ALL_CATEGORIES: Category[] = [
-  'business',
-  'personal',
-  'fitness',
-  'health',
-  'family',
-  'finance',
-  'education',
-  'other',
-];
+const DOMAINS = ['work', 'personal', 'health', 'family', 'finance', 'project', 'misc'];
+const OBJECT_TYPES = ['task', 'idea', 'reminder', 'decision', 'question', 'observation'];
 
-const CATEGORY_COLORS: Record<Category, string> = {
-  business: '#3b82f6',
+const DOMAIN_COLORS: Record<string, string> = {
+  work: '#3b82f6',
   personal: '#8b5cf6',
-  fitness: '#22c55e',
-  health: '#ef4444',
+  health: '#22c55e',
   family: '#f59e0b',
   finance: '#06b6d4',
-  education: '#ec4899',
-  other: '#6b7280',
+  project: '#ec4899',
+  misc: '#6b7280',
+};
+
+const TYPE_COLORS: Record<string, string> = {
+  task: '#3b82f6',
+  idea: '#f59e0b',
+  reminder: '#ef4444',
+  decision: '#10b981',
+  question: '#a855f7',
+  observation: '#6b7280',
+  journal: '#ec4899',
+  reference: '#6ee7b7',
 };
 
 function formatDate(date: Date | string): string {
@@ -96,10 +100,16 @@ export function ObjectsScreen({ navigation }: Props) {
     clearDetail,
   } = useObjects();
 
+  const { results: searchResults, loading: searchLoading, search, clearResults } = useSearch();
+
   const [modalVisible, setModalVisible] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState('');
+
+  const isSearchMode = searchText.trim().length > 0;
 
   // Stale actionables
   const [staleObjects, setStaleObjects] = useState<AtomicObject[]>([]);
@@ -128,43 +138,72 @@ export function ObjectsScreen({ navigation }: Props) {
       .catch(() => {});
   }, [geofenceId]);
 
-  const handleSearch = useCallback(() => {
-    setFilters({
-      ...filters,
-      search: searchText.trim() || undefined,
+  const triggerSearch = useCallback((text: string, domains: string[], types: string[]) => {
+    search(text, {
+      domain: domains.length ? domains : undefined,
+      objectType: types.length ? types : undefined,
     });
-  }, [filters, searchText, setFilters]);
+  }, [search]);
 
-  const handleCategoryToggle = useCallback(
-    (category: Category) => {
-      const currentCategories = filters.category || [];
-      const isSelected = currentCategories.includes(category);
+  const triggerBrowse = useCallback((domains: string[], types: string[]) => {
+    setFilters({
+      domain: domains.length ? domains : undefined,
+      objectType: types.length ? types : undefined,
+    });
+  }, [setFilters]);
 
-      if (isSelected) {
-        setFilters({
-          ...filters,
-          category: currentCategories.filter((c) => c !== category),
-        });
-      } else {
-        setFilters({
-          ...filters,
-          category: [...currentCategories, category],
-        });
-      }
-    },
-    [filters, setFilters]
-  );
+  const handleSearch = useCallback(() => {
+    if (searchText.trim()) {
+      triggerSearch(searchText, selectedDomains, selectedTypes);
+    }
+  }, [searchText, selectedDomains, selectedTypes, triggerSearch]);
+
+  const handleDomainToggle = useCallback((domain: string) => {
+    const next = selectedDomains.includes(domain)
+      ? selectedDomains.filter(d => d !== domain)
+      : [...selectedDomains, domain];
+    setSelectedDomains(next);
+    if (searchText.trim()) {
+      triggerSearch(searchText, next, selectedTypes);
+    } else {
+      triggerBrowse(next, selectedTypes);
+    }
+  }, [selectedDomains, selectedTypes, searchText, triggerSearch, triggerBrowse]);
+
+  const handleTypeToggle = useCallback((type: string) => {
+    const next = selectedTypes.includes(type)
+      ? selectedTypes.filter(t => t !== type)
+      : [...selectedTypes, type];
+    setSelectedTypes(next);
+    if (searchText.trim()) {
+      triggerSearch(searchText, selectedDomains, next);
+    } else {
+      triggerBrowse(selectedDomains, next);
+    }
+  }, [selectedTypes, selectedDomains, searchText, triggerSearch, triggerBrowse]);
 
   const handleClearFilters = useCallback(() => {
     setSearchText('');
+    setSelectedDomains([]);
+    setSelectedTypes([]);
+    clearResults();
     setFilters({});
-  }, [setFilters]);
+  }, [setFilters, clearResults]);
 
   const handleObjectPress = useCallback(
     async (object: AtomicObject) => {
       setModalVisible(true);
       setEditMode(false);
       await fetchObjectDetail(object.id);
+    },
+    [fetchObjectDetail]
+  );
+
+  const handleSearchResultPress = useCallback(
+    async (result: RagSearchResult) => {
+      setModalVisible(true);
+      setEditMode(false);
+      await fetchObjectDetail(result.objectId);
     },
     [fetchObjectDetail]
   );
@@ -293,34 +332,58 @@ export function ObjectsScreen({ navigation }: Props) {
     );
   }, [staleObjects, staleExpanded, renderStaleCard]);
 
-  const renderCategoryChip = useCallback(
-    (category: Category) => {
-      const isSelected = (filters.category || []).includes(category);
-      return (
-        <TouchableOpacity
-          key={category}
-          style={[
-            styles.categoryChip,
-            isSelected && { backgroundColor: CATEGORY_COLORS[category] },
-          ]}
-          onPress={() => handleCategoryToggle(category)}
-        >
-          <Text
-            style={[
-              styles.categoryChipText,
-              isSelected && styles.categoryChipTextSelected,
-            ]}
-          >
-            {category}
-          </Text>
-        </TouchableOpacity>
-      );
-    },
-    [filters.category, handleCategoryToggle]
-  );
+  const renderFilterChips = useCallback(() => (
+    <>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.chipRow}
+        contentContainerStyle={styles.chipRowContent}
+      >
+        {DOMAINS.map((domain) => {
+          const isSelected = selectedDomains.includes(domain);
+          return (
+            <TouchableOpacity
+              key={domain}
+              style={[styles.chip, isSelected && { backgroundColor: DOMAIN_COLORS[domain] ?? '#3b82f6' }]}
+              onPress={() => handleDomainToggle(domain)}
+            >
+              <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
+                {domain}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.chipRow}
+        contentContainerStyle={styles.chipRowContent}
+      >
+        {OBJECT_TYPES.map((type) => {
+          const isSelected = selectedTypes.includes(type);
+          return (
+            <TouchableOpacity
+              key={type}
+              style={[styles.chip, isSelected && { backgroundColor: TYPE_COLORS[type] ?? '#6b7280' }]}
+              onPress={() => handleTypeToggle(type)}
+            >
+              <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
+                {type}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </>
+  ), [selectedDomains, selectedTypes, handleDomainToggle, handleTypeToggle]);
 
   const renderObjectCard = useCallback(
     ({ item }: { item: AtomicObject }) => {
+      const label = item.title || item.content;
+      const domainColor = item.domain ? (DOMAIN_COLORS[item.domain] ?? '#6b7280') : '#6b7280';
+      const typeColor = item.objectType ? (TYPE_COLORS[item.objectType] ?? '#6b7280') : '#6b7280';
       return (
         <TouchableOpacity
           style={styles.objectCard}
@@ -329,16 +392,15 @@ export function ObjectsScreen({ navigation }: Props) {
         >
           <View style={styles.cardHeader}>
             <View style={styles.categoryTags}>
-              {item.category.slice(0, 2).map((cat) => (
-                <View
-                  key={cat}
-                  style={[styles.categoryTag, { backgroundColor: CATEGORY_COLORS[cat] }]}
-                >
-                  <Text style={styles.categoryTagText}>{cat}</Text>
+              {item.objectType && (
+                <View style={[styles.categoryTag, { backgroundColor: typeColor }]}>
+                  <Text style={styles.categoryTagText}>{item.objectType}</Text>
                 </View>
-              ))}
-              {item.category.length > 2 && (
-                <Text style={styles.moreCategoriesText}>+{item.category.length - 2}</Text>
+              )}
+              {item.domain && (
+                <View style={[styles.categoryTag, { backgroundColor: domainColor, opacity: 0.8 }]}>
+                  <Text style={styles.categoryTagText}>{item.domain}</Text>
+                </View>
               )}
             </View>
             <View style={styles.urgencyBadge}>
@@ -353,7 +415,7 @@ export function ObjectsScreen({ navigation }: Props) {
           </View>
 
           <Text style={styles.contentPreview} numberOfLines={3}>
-            {item.content}
+            {label}
           </Text>
 
           <View style={styles.cardFooter}>
@@ -372,10 +434,55 @@ export function ObjectsScreen({ navigation }: Props) {
     [handleObjectPress]
   );
 
-  const renderEmpty = useCallback(() => {
-    if (isLoading) return null;
+  const renderSearchResultCard = useCallback(
+    ({ item }: { item: RagSearchResult }) => {
+      const typeColor = TYPE_COLORS[item.type] ?? '#6b7280';
+      const domainColor = DOMAIN_COLORS[item.domain] ?? '#6b7280';
+      return (
+        <TouchableOpacity
+          style={styles.objectCard}
+          onPress={() => handleSearchResultPress(item)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.cardHeader}>
+            <View style={styles.categoryTags}>
+              <View style={[styles.categoryTag, { backgroundColor: typeColor }]}>
+                <Text style={styles.categoryTagText}>{item.type}</Text>
+              </View>
+              <View style={[styles.categoryTag, { backgroundColor: domainColor, opacity: 0.8 }]}>
+                <Text style={styles.categoryTagText}>{item.domain}</Text>
+              </View>
+            </View>
+            <Text style={styles.scoreText}>{Math.round(item.score * 100)}% match</Text>
+          </View>
 
-    const hasFilters = filters.search || (filters.category && filters.category.length > 0);
+          {item.title && (
+            <Text style={styles.searchResultTitle} numberOfLines={1}>{item.title}</Text>
+          )}
+          <Text style={styles.contentPreview} numberOfLines={3}>
+            {item.cleanedText}
+          </Text>
+
+          <View style={styles.cardFooter}>
+            <Text style={styles.dateText}>
+              {formatDate(item.createdAt)}
+            </Text>
+            <View style={styles.tagsContainer}>
+              {item.tags.slice(0, 2).map((tag) => (
+                <Text key={tag} style={styles.tagText}>#{tag}</Text>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [handleSearchResultPress]
+  );
+
+  const renderEmpty = useCallback(() => {
+    if (isLoading || searchLoading) return null;
+
+    const hasFilters = isSearchMode || selectedDomains.length > 0 || selectedTypes.length > 0;
 
     return (
       <View style={styles.emptyState}>
@@ -395,7 +502,7 @@ export function ObjectsScreen({ navigation }: Props) {
         )}
       </View>
     );
-  }, [isLoading, filters, handleClearFilters]);
+  }, [isLoading, searchLoading, isSearchMode, selectedDomains, selectedTypes, handleClearFilters]);
 
   const renderFooter = useCallback(() => {
     if (!hasMore || isLoading) return null;
@@ -445,15 +552,10 @@ export function ObjectsScreen({ navigation }: Props) {
         </TouchableOpacity>
       </View>
 
-      {/* Category Filter */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoryFilter}
-        contentContainerStyle={styles.categoryFilterContent}
-      >
-        {ALL_CATEGORIES.map(renderCategoryChip)}
-      </ScrollView>
+      {/* Domain + Type Filter Chips */}
+      <View style={styles.chipsContainer}>
+        {renderFilterChips()}
+      </View>
 
       {/* Geofence Context Banner (when navigated from notification) */}
       {renderGeofenceContext()}
@@ -461,14 +563,23 @@ export function ObjectsScreen({ navigation }: Props) {
       {/* Stale Actionables Banner */}
       {renderStaleBanner()}
 
-      {/* Objects List */}
-      {isLoading && objects.length === 0 ? (
+      {/* Objects / Search Results List */}
+      {(isLoading || searchLoading) && (isSearchMode ? searchResults.length === 0 : objects.length === 0) ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={styles.loadingText}>Loading objects...</Text>
+          <Text style={styles.loadingText}>{isSearchMode ? 'Searching...' : 'Loading objects...'}</Text>
         </View>
-      ) : error && objects.length === 0 ? (
+      ) : !isSearchMode && error && objects.length === 0 ? (
         renderError()
+      ) : isSearchMode ? (
+        <FlatList
+          data={searchResults}
+          keyExtractor={(item) => item.objectId}
+          renderItem={renderSearchResultCard}
+          contentContainerStyle={searchResults.length === 0 ? styles.listEmpty : styles.listContent}
+          ListEmptyComponent={renderEmpty}
+          showsVerticalScrollIndicator={false}
+        />
       ) : (
         <FlatList
           data={objects}
@@ -526,18 +637,20 @@ export function ObjectsScreen({ navigation }: Props) {
               </View>
             ) : selectedObject ? (
               <ScrollView style={styles.modalContent}>
-                {/* Categories */}
+                {/* Type + Domain */}
                 <View style={styles.detailSection}>
-                  <Text style={styles.detailLabel}>Categories</Text>
+                  <Text style={styles.detailLabel}>Classification</Text>
                   <View style={styles.detailCategoryTags}>
-                    {selectedObject.category.map((cat) => (
-                      <View
-                        key={cat}
-                        style={[styles.categoryTag, { backgroundColor: CATEGORY_COLORS[cat] }]}
-                      >
-                        <Text style={styles.categoryTagText}>{cat}</Text>
+                    {selectedObject.objectType && (
+                      <View style={[styles.categoryTag, { backgroundColor: TYPE_COLORS[selectedObject.objectType] ?? '#6b7280' }]}>
+                        <Text style={styles.categoryTagText}>{selectedObject.objectType}</Text>
                       </View>
-                    ))}
+                    )}
+                    {selectedObject.domain && (
+                      <View style={[styles.categoryTag, { backgroundColor: DOMAIN_COLORS[selectedObject.domain] ?? '#6b7280', opacity: 0.8 }]}>
+                        <Text style={styles.categoryTagText}>{selectedObject.domain}</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
 
@@ -712,32 +825,45 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
-  // Category Filter
-  categoryFilter: {
-    height: 52,
+  // Filter chips
+  chipsContainer: {
     borderBottomWidth: 1,
     borderBottomColor: '#1a1a1a',
   },
-  categoryFilterContent: {
+  chipRow: {
+    height: 44,
+  },
+  chipRowContent: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     gap: 8,
     flexDirection: 'row',
     alignItems: 'center',
   },
-  categoryChip: {
+  chip: {
     backgroundColor: '#1a1a1a',
     borderRadius: 16,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 5,
   },
-  categoryChipText: {
+  chipText: {
     color: '#888',
     fontSize: 12,
     textTransform: 'capitalize',
   },
-  categoryChipTextSelected: {
+  chipTextSelected: {
     color: '#fff',
+  },
+  scoreText: {
+    color: '#3b82f6',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  searchResultTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 4,
   },
   // Loading
   loadingContainer: {
