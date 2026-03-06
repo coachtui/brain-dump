@@ -7,7 +7,14 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error(
+    'JWT_SECRET environment variable is not set. ' +
+    'Set it in Railway environment variables (Settings → Variables) or in backend/api/.env for local dev.'
+  );
+}
+
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '30d';
 
@@ -27,7 +34,7 @@ export function generateAccessToken(userId: string, email: string): string {
     type: 'access',
   };
 
-  return jwt.sign(payload, JWT_SECRET, {
+  return jwt.sign(payload, JWT_SECRET as string, {
     expiresIn: JWT_EXPIRES_IN as string | number,
   });
 }
@@ -42,7 +49,7 @@ export function generateRefreshToken(userId: string, email: string): string {
     type: 'refresh',
   };
 
-  return jwt.sign(payload, JWT_SECRET, {
+  return jwt.sign(payload, JWT_SECRET as string, {
     expiresIn: JWT_REFRESH_EXPIRES_IN as string | number,
   });
 }
@@ -52,14 +59,15 @@ export function generateRefreshToken(userId: string, email: string): string {
  */
 export function verifyToken(token: string): JWTPayload {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
+    const decoded = jwt.verify(token, JWT_SECRET as string) as JWTPayload;
     return decoded;
   } catch (error) {
-    if (error instanceof jwt.JsonWebTokenError) {
-      throw new Error('Invalid token');
-    }
+    // TokenExpiredError extends JsonWebTokenError — check the subclass first
     if (error instanceof jwt.TokenExpiredError) {
       throw new Error('Token expired');
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      throw new Error('Invalid token');
     }
     throw new Error('Token verification failed');
   }

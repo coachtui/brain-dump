@@ -35,20 +35,21 @@ const saveTranscriptSchema = z.object({
  * Mobile app uses this to connect directly to Deepgram for real-time transcription
  */
 router.get('/deepgram-token', async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  console.log(`[Voice] GET /deepgram-token — userId: ${userId}`);
+
   try {
-    const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const apiKey = process.env.DEEPGRAM_API_KEY;
     if (!apiKey) {
-      console.error('DEEPGRAM_API_KEY not configured');
+      console.error('[Voice] DEEPGRAM_API_KEY not configured');
       return res.status(500).json({ error: 'Deepgram not configured' });
     }
 
-    // Request a temporary token from Deepgram (60 seconds to connect)
-    console.log('🔑 Requesting Deepgram token (key length:', apiKey?.length, ')');
+    console.log('[Voice] requesting Deepgram temp token (key length:', apiKey.length, ')');
     const response = await fetch('https://api.deepgram.com/v1/auth/token', {
       method: 'POST',
       headers: {
@@ -60,7 +61,7 @@ router.get('/deepgram-token', async (req: Request, res: Response) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Deepgram API error (status:', response.status, '):', errorText);
+      console.error('[Voice] Deepgram API error (status:', response.status, '):', errorText);
       return res.status(500).json({
         error: 'Failed to get Deepgram token',
         details: process.env.NODE_ENV === 'development' ? errorText : undefined,
@@ -69,9 +70,10 @@ router.get('/deepgram-token', async (req: Request, res: Response) => {
     }
 
     const data = await response.json() as { token: string };
+    console.log('[Voice] Deepgram token issued');
     res.json({ token: data.token });
   } catch (error) {
-    console.error('Error getting Deepgram token:', error);
+    console.error('[Voice] error getting Deepgram token:', error);
     res.status(500).json({
       error: 'Failed to get Deepgram token',
       message: error instanceof Error ? error.message : 'Unknown error',
@@ -84,14 +86,17 @@ router.get('/deepgram-token', async (req: Request, res: Response) => {
  * Called after recording stops with the final transcript from Deepgram
  */
 router.post('/save-transcript', async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  console.log(`[Voice] POST /save-transcript — userId: ${userId}`);
+
   try {
-    const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const validationResult = saveTranscriptSchema.safeParse(req.body);
     if (!validationResult.success) {
+      console.warn('[Voice] save-transcript validation failed:', validationResult.error.errors);
       return res.status(400).json({
         error: 'Validation failed',
         details: validationResult.error.errors,
@@ -99,8 +104,8 @@ router.post('/save-transcript', async (req: Request, res: Response) => {
     }
 
     const { transcript, duration, location, metadata } = validationResult.data;
+    console.log('[Voice] transcript length:', transcript.length, '— duration:', duration);
 
-    // Type-safe location (zod ensures latitude/longitude exist if location is present)
     const geoLocation = location ? {
       latitude: location.latitude,
       longitude: location.longitude,
@@ -108,69 +113,92 @@ router.post('/save-transcript', async (req: Request, res: Response) => {
       altitude: location.altitude,
     } : undefined;
 
-    // Create a session record
+    // Create a session record (initial status: 'recording')
     const session = await Session.create({
       userId,
       deviceId: 'mobile-deepgram',
       location: geoLocation,
       metadata: { ...metadata, duration, transcriptionMethod: 'deepgram' },
     });
+    console.log('[Voice] session created:', session.id);
 
     // Parse transcript and create atomic objects
     const objectIds: string[] = [];
 
-    if (transcript.trim()) {
-      const mlAvailable = await checkMLServiceHealth();
+    try {
+      if (transcript.trim()) {
+        const mlAvailable = await checkMLServiceHealth();
+        console.log('[Voice] ML service available:', mlAvailable);
 
-      if (mlAvailable) {
-        // Use ML service to parse transcript into atomic objects
-        const parseResult = await parseTranscript({
-          transcript,
-          userId,
-          sessionId: session.id,
-          location: geoLocation,
-          timestamp: new Date(),
-        });
+        if (mlAvailable) {
+          const parseResult = await parseTranscript({
+            transcript,
+            userId,
+            sessionId: session.id,
+            location: geoLocation,
+            timestamp: new Date(),
+          });
+          console.log('[Voice] ML parsed', parseResult.atomicObjects.length, 'objects');
 
-        for (const parsedObject of parseResult.atomicObjects) {
+          for (const parsedObject of parseResult.atomicObjects) {
+            const object = await createObject(userId, {
+              content: parsedObject.content,
+              category: parsedObject.category,
+              source: {
+                type: 'voice',
+                recordingId: session.id,
+                location: geoLocation,
+              },
+              metadata: {
+                tags: parsedObject.tags,
+                urgency: parsedObject.urgency,
+              },
+            });
+            objectIds.push(object.id);
+          }
+        } else {
+          // Fallback: create single object with full transcript
+          console.log('[Voice] ML unavailable — creating single fallback object');
           const object = await createObject(userId, {
-            content: parsedObject.content,
-            category: parsedObject.category,
+            content: transcript,
             source: {
               type: 'voice',
               recordingId: session.id,
               location: geoLocation,
             },
-            metadata: {
-              tags: parsedObject.tags,
-              urgency: parsedObject.urgency,
-            },
           });
           objectIds.push(object.id);
         }
-      } else {
-        // Fallback: create single object with full transcript
-        const object = await createObject(userId, {
-          content: transcript,
-          source: {
-            type: 'voice',
-            recordingId: session.id,
-            location: geoLocation,
+      }
+
+      // Update session as completed — store transcript in metadata for UI retrieval
+      await session.update({
+        status: 'completed',
+        metadata: {
+          ...session.metadata,
+          transcript,
+          objectIds,
+        },
+      });
+      console.log('[Voice] session', session.id, 'completed —', objectIds.length, 'objects');
+
+    } catch (processingError) {
+      // Session exists but processing failed — mark as failed so it appears in UI
+      console.error('[Voice] processing failed for session', session.id, ':', processingError);
+      try {
+        await session.update({
+          status: 'failed',
+          metadata: {
+            ...session.metadata,
+            transcript,
+            processingError: processingError instanceof Error ? processingError.message : 'Unknown error',
           },
         });
-        objectIds.push(object.id);
+      } catch (updateError) {
+        console.error('[Voice] could not mark session as failed:', updateError);
       }
+      throw processingError;
     }
-
-    // Update session as completed
-    await session.update({
-      status: 'completed',
-      metadata: {
-        ...session.metadata,
-        transcript,
-        objectIds,
-      },
-    });
 
     res.json({
       sessionId: session.id,
@@ -178,7 +206,7 @@ router.post('/save-transcript', async (req: Request, res: Response) => {
       objectCount: objectIds.length,
     });
   } catch (error) {
-    console.error('Error saving transcript:', error);
+    console.error('[Voice] save-transcript error:', error);
     res.status(500).json({
       error: 'Failed to save transcript',
       message: error instanceof Error ? error.message : 'Unknown error',
@@ -190,8 +218,10 @@ router.post('/save-transcript', async (req: Request, res: Response) => {
  * GET /api/v1/voice/sessions - List user's voice sessions
  */
 router.get('/sessions', async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  console.log(`[Voice] GET /sessions — userId: ${userId}`);
+
   try {
-    const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -211,6 +241,8 @@ router.get('/sessions', async (req: Request, res: Response) => {
       offset,
     });
 
+    console.log(`[Voice] returning ${result.sessions.length} sessions (total: ${result.total})`);
+
     res.json({
       sessions: result.sessions.map((s) => s.toVoiceSession()),
       total: result.total,
@@ -218,7 +250,7 @@ router.get('/sessions', async (req: Request, res: Response) => {
       offset,
     });
   } catch (error) {
-    console.error('Error listing sessions:', error);
+    console.error('[Voice] list sessions error:', error);
     res.status(500).json({
       error: 'Failed to list sessions',
       message: error instanceof Error ? error.message : 'Unknown error',
@@ -230,31 +262,82 @@ router.get('/sessions', async (req: Request, res: Response) => {
  * GET /api/v1/voice/sessions/:id - Get session details
  */
 router.get('/sessions/:id', async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  const { id } = req.params;
+  console.log(`[Voice] GET /sessions/${id} — userId: ${userId}`);
+
   try {
-    const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { id } = req.params;
     const session = await Session.findById(id);
 
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    // Verify ownership
     if (session.userId !== userId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
+    // Extract transcript from metadata so the client detail view can display it
+    const currentTranscript = typeof session.metadata?.transcript === 'string'
+      ? session.metadata.transcript
+      : null;
+
+    const duration = typeof session.metadata?.duration === 'number'
+      ? session.metadata.duration
+      : null;
+
     res.json({
       session: session.toVoiceSession(),
+      isActive: session.status === 'recording',
+      currentTranscript,
+      duration,
+      chunkCount: 0,
     });
   } catch (error) {
-    console.error('Error getting session:', error);
+    console.error('[Voice] get session error:', error);
     res.status(500).json({
       error: 'Failed to get session',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/voice/sessions/:id/audio - Get pre-signed audio URL
+ * The Deepgram flow streams audio directly to Deepgram; no audio is stored server-side.
+ * Returns 404 with a clear message so the client can display "Audio not available".
+ */
+router.get('/sessions/:id/audio', async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  const { id } = req.params;
+  console.log(`[Voice] GET /sessions/${id}/audio — userId: ${userId}`);
+
+  try {
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const session = await Session.findById(id);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    if (session.userId !== userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // Audio is not stored server-side for Deepgram sessions
+    return res.status(404).json({
+      error: 'Audio not available',
+      message: 'Audio is not stored for Deepgram-transcribed sessions',
+    });
+  } catch (error) {
+    console.error('[Voice] get audio URL error:', error);
+    res.status(500).json({
+      error: 'Failed to get audio URL',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }

@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { ExpoPlayAudioStream } from '@mykin-ai/expo-audio-stream';
 import { Audio } from 'expo-av';
-import { apiService } from '../services/api';
+import { apiService, AuthError } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import type { GeoPoint } from '../types';
 
 interface TranscriptionState {
@@ -30,6 +31,8 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 }
 
 export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
+  const { handleAuthError } = useAuth();
+
   const [state, setState] = useState<TranscriptionState>({
     status: 'idle',
     partialTranscript: '',
@@ -62,13 +65,23 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
   }, []);
 
   const startRecording = useCallback(async (location?: GeoPoint) => {
+    console.log('[Recording] startRecording called');
     try {
       setState(prev => ({ ...prev, status: 'connecting', error: null }));
       locationRef.current = location;
       finalTranscriptRef.current = '';
 
-      // Request audio permissions
+      // ── 1. Auth check ──────────────────────────────────────────────────
+      const storedToken = await apiService.getStoredToken();
+      console.log('[Recording] auth token present:', !!storedToken,
+        storedToken ? `length=${storedToken.length}` : '(null)');
+      if (!storedToken) {
+        throw new AuthError('Not authenticated — please log in again');
+      }
+
+      // ── 2. Microphone permission ────────────────────────────────────────
       const { status } = await Audio.requestPermissionsAsync();
+      console.log('[Recording] microphone permission:', status);
       if (status !== 'granted') {
         throw new Error('Microphone permission not granted');
       }
@@ -78,32 +91,33 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
       });
+      console.log('[Recording] audio mode set');
 
-      // Get temporary Deepgram token from our backend
-      console.log('🔑 Getting Deepgram token...');
+      // ── 3. Deepgram token fetch ────────────────────────────────────────
+      console.log('[Recording] fetching Deepgram token from backend...');
       const { token } = await apiService.getDeepgramToken();
+      console.log('[Recording] Deepgram token received, length:', token?.length ?? 0);
 
-      // Connect to Deepgram WebSocket
+      // ── 4. Deepgram WebSocket connection ───────────────────────────────
       const deepgramUrl = `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&punctuate=true&interim_results=true`;
-
-      console.log('🔌 Connecting to Deepgram...');
+      console.log('[Recording] connecting to Deepgram...');
       const ws = new WebSocket(deepgramUrl, ['token', token]);
       wsRef.current = ws;
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('Deepgram connection timeout'));
+          reject(new Error('Deepgram connection timeout after 10s'));
         }, 10000);
 
         ws.onopen = () => {
           clearTimeout(timeout);
-          console.log('✅ Connected to Deepgram');
+          console.log('[Recording] Deepgram WebSocket open');
           resolve();
         };
 
         ws.onerror = (event) => {
           clearTimeout(timeout);
-          console.error('❌ Deepgram WebSocket error:', event);
+          console.error('[Recording] Deepgram WebSocket error on open:', event);
           reject(new Error('Failed to connect to Deepgram'));
         };
       });
@@ -119,15 +133,14 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
 
             if (transcript) {
               if (isFinal) {
-                // Append to final transcript
                 finalTranscriptRef.current += (finalTranscriptRef.current ? ' ' : '') + transcript;
+                console.log('[Recording] Deepgram final segment, total length:', finalTranscriptRef.current.length);
                 setState(prev => ({
                   ...prev,
                   finalTranscript: finalTranscriptRef.current,
                   partialTranscript: '',
                 }));
               } else {
-                // Update partial transcript
                 setState(prev => ({
                   ...prev,
                   partialTranscript: transcript,
@@ -136,21 +149,21 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
             }
           }
         } catch (error) {
-          console.error('Error parsing Deepgram message:', error);
+          console.error('[Recording] Error parsing Deepgram message:', error);
         }
       };
 
       ws.onclose = (event) => {
-        console.log('🔌 Deepgram WebSocket closed:', event.code, event.reason);
+        console.log('[Recording] Deepgram WebSocket closed:', event.code, event.reason);
       };
 
       ws.onerror = (event) => {
-        console.error('❌ Deepgram WebSocket error:', event);
+        console.error('[Recording] Deepgram WebSocket error (post-connect):', event);
         setState(prev => ({ ...prev, error: 'Deepgram connection error' }));
       };
 
-      // Start microphone streaming
-      console.log('🎤 Starting microphone...');
+      // ── 5. Microphone stream start ────────────────────────────────────
+      console.log('[Recording] starting microphone stream...');
       const { subscription } = await ExpoPlayAudioStream.startMicrophone({
         sampleRate: 16000,
         channels: 1,
@@ -170,6 +183,7 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
 
       audioSubscriptionRef.current = subscription;
       startTimeRef.current = Date.now();
+      console.log('[Recording] microphone streaming started');
 
       // Start duration timer
       durationIntervalRef.current = setInterval(() => {
@@ -187,19 +201,20 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
         duration: 0,
       }));
 
-      console.log('✅ Recording started');
+      console.log('[Recording] recording started successfully');
     } catch (error) {
-      console.error('❌ Failed to start recording:', error);
+      console.error('[Recording] startRecording failed:', error instanceof Error ? error.message : error);
+      handleAuthError(error);
       setState(prev => ({
         ...prev,
         status: 'error',
         error: error instanceof Error ? error.message : 'Failed to start recording',
       }));
     }
-  }, []);
+  }, [handleAuthError]);
 
   const stopRecording = useCallback(async () => {
-    console.log('🛑 Stopping recording...');
+    console.log('[Recording] stopRecording called');
 
     // Stop duration timer
     if (durationIntervalRef.current) {
@@ -215,18 +230,21 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
 
     try {
       await ExpoPlayAudioStream.stopMicrophone();
+      console.log('[Recording] microphone stopped');
     } catch (error) {
-      console.warn('stopMicrophone error:', error);
+      console.warn('[Recording] stopMicrophone error (may be normal):', error);
     }
 
     // Close Deepgram connection
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
+      console.log('[Recording] Deepgram WebSocket closed');
     }
 
     const finalDuration = Math.floor((Date.now() - startTimeRef.current) / 1000);
     const transcript = finalTranscriptRef.current;
+    console.log('[Recording] final transcript length:', transcript.length, '— duration:', finalDuration, 's');
 
     setState(prev => ({
       ...prev,
@@ -236,25 +254,27 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
       partialTranscript: '',
     }));
 
-    // Save transcript to backend if there's content
+    // ── 6. Save transcript to backend ─────────────────────────────────
     if (transcript.trim()) {
       try {
-        console.log('💾 Saving transcript to backend...');
+        console.log('[Recording] saving transcript to backend...');
         const result = await apiService.saveTranscript({
           transcript,
           duration: finalDuration,
           location: locationRef.current,
         });
 
+        console.log('[Recording] transcript saved — sessionId:', result.sessionId,
+          '— objectCount:', result.objectCount);
+
         setState(prev => ({
           ...prev,
           status: 'done',
           savedObjectIds: result.objectIds,
         }));
-
-        console.log(`✅ Saved ${result.objectCount} objects`);
       } catch (error) {
-        console.error('❌ Failed to save transcript:', error);
+        console.error('[Recording] saveTranscript failed:', error instanceof Error ? error.message : error);
+        handleAuthError(error);
         setState(prev => ({
           ...prev,
           status: 'error',
@@ -262,13 +282,14 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
         }));
       }
     } else {
+      console.log('[Recording] empty transcript — skipping save');
       setState(prev => ({
         ...prev,
         status: 'done',
         savedObjectIds: [],
       }));
     }
-  }, []);
+  }, [handleAuthError]);
 
   const reset = useCallback(() => {
     setState({

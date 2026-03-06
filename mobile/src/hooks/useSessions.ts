@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { apiService } from '../services/api';
+import { apiService, AuthError } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { VoiceSession } from '../types';
 
 interface SessionsState {
@@ -34,6 +35,8 @@ interface UseSessionsReturn extends SessionsState, SessionDetailState {
 const PAGE_SIZE = 20;
 
 export function useSessions(): UseSessionsReturn {
+  const { handleAuthError } = useAuth();
+
   const [state, setState] = useState<SessionsState>({
     sessions: [],
     isLoading: true,
@@ -57,10 +60,12 @@ export function useSessions(): UseSessionsReturn {
   const [offset, setOffset] = useState(0);
 
   const fetchSessions = useCallback(async () => {
+    console.log('[Sessions] fetchSessions called');
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
       const response = await apiService.getSessions(PAGE_SIZE, 0);
+      console.log('[Sessions] fetched', response.sessions.length, 'of', response.total, 'sessions');
       setState({
         sessions: response.sessions,
         isLoading: false,
@@ -71,6 +76,8 @@ export function useSessions(): UseSessionsReturn {
       });
       setOffset(response.sessions.length);
     } catch (error) {
+      console.error('[Sessions] fetchSessions error:', error instanceof Error ? error.message : error);
+      handleAuthError(error);
       setState((prev) => ({
         ...prev,
         isLoading: false,
@@ -78,7 +85,7 @@ export function useSessions(): UseSessionsReturn {
         error: error instanceof Error ? error.message : 'Failed to fetch sessions',
       }));
     }
-  }, []);
+  }, [handleAuthError]);
 
   const loadMore = useCallback(async () => {
     if (state.isLoading || !state.hasMore) return;

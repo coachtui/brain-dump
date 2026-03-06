@@ -37,29 +37,62 @@ interface ObjectsListResponse {
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
+/**
+ * Thrown when the server returns 401.
+ * Callers (especially AuthContext) can catch this specifically to force logout.
+ */
+export class AuthError extends Error {
+  readonly status = 401;
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthError';
+  }
+}
+
 class ApiService {
   private accessToken: string | null = null;
 
   async init(): Promise<void> {
     this.accessToken = await SecureStore.getItemAsync('accessToken');
+    console.log('[ApiService] init — token present:', !!this.accessToken);
+  }
+
+  /**
+   * Returns the current token.
+   * Falls back to SecureStore if in-memory token is null (e.g. after hot-reload).
+   */
+  private async resolveToken(): Promise<string | null> {
+    if (this.accessToken) return this.accessToken;
+    const stored = await SecureStore.getItemAsync('accessToken');
+    if (stored) {
+      this.accessToken = stored; // re-hydrate memory
+    }
+    return stored;
   }
 
   private async getHeaders(): Promise<HeadersInit> {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
-    if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
+    const token = await this.resolveToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
     return headers;
   }
 
+  /**
+   * Core request helper.
+   * On 401: clears stored token and throws AuthError so callers can trigger logout.
+   */
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`;
     const headers = await this.getHeaders();
+
+    console.log(`[ApiService] ${options.method || 'GET'} ${endpoint} — auth: ${!!headers['Authorization']}`);
 
     const response = await fetch(url, {
       ...options,
@@ -69,8 +102,17 @@ class ApiService {
       },
     });
 
+    if (response.status === 401) {
+      // Token is invalid or expired — clear it and signal AuthError
+      console.warn(`[ApiService] 401 on ${endpoint} — clearing stored token`);
+      await this.clearToken();
+      const body = await response.json().catch(() => ({}));
+      throw new AuthError(body.message || 'Session expired. Please log in again.');
+    }
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Request failed' }));
+      console.error(`[ApiService] ${response.status} on ${endpoint}:`, error.message);
       throw new Error(error.message || `HTTP ${response.status}`);
     }
 
@@ -89,6 +131,7 @@ class ApiService {
     if (response.refreshToken) {
       await SecureStore.setItemAsync('refreshToken', response.refreshToken);
     }
+    console.log('[ApiService] login — token stored, length:', response.accessToken.length);
 
     return response;
   }
@@ -109,6 +152,10 @@ class ApiService {
   }
 
   async logout(): Promise<void> {
+    await this.clearToken();
+  }
+
+  async clearToken(): Promise<void> {
     this.accessToken = null;
     await SecureStore.deleteItemAsync('accessToken');
     await SecureStore.deleteItemAsync('refreshToken');

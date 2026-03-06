@@ -38,6 +38,7 @@ export async function authenticate(
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.warn(`[Auth] ${req.method} ${req.path} — missing/invalid Authorization header`);
       res.status(401).json({
         error: 'UNAUTHORIZED',
         message: 'Missing or invalid authorization header',
@@ -51,6 +52,7 @@ export async function authenticate(
       const payload = verifyToken(token);
 
       if (payload.type !== 'access') {
+        console.warn(`[Auth] ${req.method} ${req.path} — wrong token type: ${payload.type}`);
         res.status(401).json({
           error: 'UNAUTHORIZED',
           message: 'Invalid token type',
@@ -61,6 +63,7 @@ export async function authenticate(
       // Verify user still exists
       const user = await User.findById(payload.userId);
       if (!user) {
+        console.warn(`[Auth] ${req.method} ${req.path} — userId ${payload.userId} not found in DB`);
         res.status(401).json({
           error: 'UNAUTHORIZED',
           message: 'User not found',
@@ -74,8 +77,13 @@ export async function authenticate(
         email: user.email,
       };
 
+      console.log(`[Auth] ${req.method} ${req.path} — authenticated userId: ${user.id}`);
       next();
     } catch (error) {
+      // Log token prefix for debugging — never log the full token
+      const tokenPreview = token.length > 10 ? `${token.substring(0, 10)}...` : '(short)';
+      console.error(`[Auth] ${req.method} ${req.path} — token verification failed (prefix: ${tokenPreview}):`,
+        error instanceof Error ? error.message : error);
       res.status(401).json({
         error: 'UNAUTHORIZED',
         message: error instanceof Error ? error.message : 'Invalid token',
@@ -83,6 +91,7 @@ export async function authenticate(
       return;
     }
   } catch (error) {
+    console.error(`[Auth] ${req.method} ${req.path} — internal auth error:`, error);
     res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Authentication error',
