@@ -296,8 +296,40 @@ class ApiService {
   }
 
   // Geofence methods
+
+  /** Map backend geofence shape → mobile hook shape */
+  private toMobileGeofence(g: any): any {
+    return {
+      ...g,
+      location: g.center ?? g.location,
+      enabled: g.notificationSettings?.enabled ?? false,
+      notifyOnEnter: g.notificationSettings?.onEnter ?? false,
+      notifyOnExit: g.notificationSettings?.onExit ?? false,
+      quietHoursStart: g.notificationSettings?.quietHours?.start,
+      quietHoursEnd: g.notificationSettings?.quietHours?.end,
+    };
+  }
+
+  /** Map mobile hook shape → backend body shape */
+  private toBackendGeofence(data: any): any {
+    const { location, notifyOnEnter, notifyOnExit, quietHoursStart, quietHoursEnd, enabled, ...rest } = data;
+    return {
+      ...rest,
+      ...(location ? { center: location } : {}),
+      notificationSettings: {
+        enabled: enabled ?? true,
+        onEnter: notifyOnEnter ?? true,
+        onExit: notifyOnExit ?? false,
+        ...(quietHoursStart && quietHoursEnd
+          ? { quietHours: { start: quietHoursStart, end: quietHoursEnd } }
+          : {}),
+      },
+    };
+  }
+
   async getGeofences(): Promise<{ geofences: any[] }> {
-    return this.request('/api/v1/geofences');
+    const res = await this.request<{ geofences: any[] }>('/api/v1/geofences');
+    return { geofences: res.geofences.map((g) => this.toMobileGeofence(g)) };
   }
 
   async getGeofenceObjects(geofenceId: string): Promise<{ objects: AtomicObject[] }> {
@@ -305,17 +337,19 @@ class ApiService {
   }
 
   async createGeofence(data: any): Promise<{ geofence: any }> {
-    return this.request('/api/v1/geofences', {
+    const res = await this.request<{ geofence: any }>('/api/v1/geofences', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(this.toBackendGeofence(data)),
     });
+    return { geofence: this.toMobileGeofence(res.geofence) };
   }
 
   async updateGeofence(id: string, data: any): Promise<{ geofence: any }> {
-    return this.request(`/api/v1/geofences/${id}`, {
+    const res = await this.request<{ geofence: any }>(`/api/v1/geofences/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: JSON.stringify(this.toBackendGeofence(data)),
     });
+    return { geofence: this.toMobileGeofence(res.geofence) };
   }
 
   async deleteGeofence(id: string): Promise<void> {
