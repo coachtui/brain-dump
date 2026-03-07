@@ -130,13 +130,15 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    console.log('[geofences] POST / body:', JSON.stringify(req.body));
     const geofence = await createGeofence(req.user.id, req.body);
     res.status(201).json({ geofence });
   } catch (error) {
     if (error instanceof z.ZodError) {
+      console.error('[geofences] POST / validation error:', JSON.stringify(error.errors));
       res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'Invalid input',
+        message: `Validation failed: ${error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}`,
         details: error.errors,
       });
       return;

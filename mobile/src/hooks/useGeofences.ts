@@ -130,7 +130,7 @@ export function useGeofences(): UseGeofencesResult {
     } catch (err: any) {
       const message = err.response?.data?.message || err.message || 'Failed to create geofence';
       setError(message);
-      console.error('[useGeofences] Error creating:', message);
+      console.error('[useGeofences] Error creating (full):', JSON.stringify(err, Object.getOwnPropertyNames(err)));
       throw new Error(message);
     } finally {
       setLoading(false);
