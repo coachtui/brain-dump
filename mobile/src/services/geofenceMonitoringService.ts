@@ -63,9 +63,6 @@ class GeofenceMonitoringService {
     // Configure notification handler
     await this.setupNotificationHandler();
 
-    // Define background task for geofence events
-    this.defineBackgroundTask();
-
     this.initialized = true;
     console.log('[GeofenceMonitoring] Service initialized');
   }
@@ -95,48 +92,20 @@ class GeofenceMonitoringService {
   }
 
   /**
-   * Define background task that handles geofence events
+   * Handle a geofence event — called from the module-level TaskManager.defineTask
    */
-  private defineBackgroundTask(): void {
-    TaskManager.defineTask(
-      GEOFENCE_TASK_NAME,
-      async ({ data, error }: any) => {
-        if (error) {
-          console.error('[GeofenceMonitoring] Background task error:', error);
-          return;
-        }
-
-        const { eventType, region } = data;
-
-        console.log('[GeofenceMonitoring] Geofence event:', eventType, region.identifier);
-
-        // Create event object
-        const event: GeofenceEvent = {
-          type: eventType === Location.GeofencingEventType.Enter ? 'enter' : 'exit',
-          region: {
-            identifier: region.identifier,
-            latitude: region.latitude,
-            longitude: region.longitude,
-            radius: region.radius,
-            notifyOnEnter: true,
-            notifyOnExit: true,
-          },
-          timestamp: new Date(),
-        };
-
-        // Trigger callbacks (if app is running)
-        try {
-          for (const callback of this.eventCallbacks) {
-            await callback(event);
-          }
-        } catch (err) {
-          console.error('[GeofenceMonitoring] Error in event callback:', err);
-        }
-
-        // Show local notification
-        await this.showGeofenceNotification(event);
+  async handleGeofenceEvent(event: GeofenceEvent): Promise<void> {
+    // Trigger callbacks (if app is running)
+    try {
+      for (const callback of this.eventCallbacks) {
+        await callback(event);
       }
-    );
+    } catch (err) {
+      console.error('[GeofenceMonitoring] Error in event callback:', err);
+    }
+
+    // Show local notification
+    await this.showGeofenceNotification(event);
   }
 
   /**
@@ -365,3 +334,31 @@ export const geofenceMonitoringService = GeofenceMonitoringService.getInstance()
 
 // Export types
 export type { GeofenceRegion, GeofenceEvent, GeofenceEventCallback };
+
+// MUST be defined at module level (top-level scope) — Expo requirement.
+// Calling defineTask inside a class method or lazy initializer causes silent failures.
+TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }: any) => {
+  if (error) {
+    console.error('[GeofenceMonitoring] Background task error:', error);
+    return;
+  }
+
+  const { eventType, region } = data;
+  console.log('[GeofenceMonitoring] Geofence event:', eventType, region.identifier);
+
+  const event: GeofenceEvent = {
+    type: eventType === Location.GeofencingEventType.Enter ? 'enter' : 'exit',
+    region: {
+      identifier: region.identifier,
+      latitude: region.latitude,
+      longitude: region.longitude,
+      radius: region.radius,
+      notifyOnEnter: true,
+      notifyOnExit: true,
+    },
+    timestamp: new Date(),
+  };
+
+  // Show local notification (service instance handles this)
+  await geofenceMonitoringService.handleGeofenceEvent(event);
+});
