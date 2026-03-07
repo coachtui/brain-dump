@@ -221,6 +221,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
 
     // Normalize mobile-native shape (same as POST)
+    console.log('[geofences] PUT /:id body:', JSON.stringify(req.body));
     const raw = req.body;
     const normalizedBody: any = { ...raw };
     if (raw.location && !raw.center) normalizedBody.center = raw.location;
