@@ -131,7 +131,18 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     console.log('[geofences] POST / body:', JSON.stringify(req.body));
-    const geofence = await createGeofence(req.user.id, req.body);
+    // Normalize: accept both mobile-native shape (location/notifyOnEnter) and mapped shape (center/notificationSettings)
+    const raw = req.body;
+    const normalizedBody = {
+      ...raw,
+      center: raw.center ?? raw.location,
+      notificationSettings: raw.notificationSettings ?? {
+        enabled: true,
+        onEnter: raw.notifyOnEnter ?? true,
+        onExit: raw.notifyOnExit ?? false,
+      },
+    };
+    const geofence = await createGeofence(req.user.id, normalizedBody);
     res.status(201).json({ geofence });
   } catch (error) {
     if (error instanceof z.ZodError) {
