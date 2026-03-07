@@ -279,6 +279,12 @@ class GeofenceMonitoringService {
    */
   private async showGeofenceNotification(event: GeofenceEvent): Promise<void> {
     try {
+      // Respect quiet hours
+      if (this.isInQuietHours()) {
+        console.log('[GeofenceMonitoring] Skipping notification (quiet hours)');
+        return;
+      }
+
       // TODO: Fetch relevant objects from local database
       const objectCount = await this.getRelevantObjectCount(event.region.identifier);
 
@@ -313,21 +319,33 @@ class GeofenceMonitoringService {
 
   /**
    * Get count of relevant objects for a geofence via API
+   *
+   * KNOWN ISSUE: Uses JWT from SecureStore which may be expired when background task fires.
+   * Currently fails gracefully (returns 0). Full solution requires token refresh infrastructure.
+   * TODO: Implement token refresh or local caching strategy
    */
   private async getRelevantObjectCount(geofenceId: string): Promise<number> {
     try {
       const token = await SecureStore.getItemAsync('accessToken');
-      if (!token) return 0;
+      if (!token) {
+        console.warn('[GeofenceMonitoring] No access token found for object count API call');
+        return 0;
+      }
 
       const response = await fetch(
         `${API_BASE_URL}/api/v1/geofences/${geofenceId}/objects`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (!response.ok) return 0;
+
+      if (!response.ok) {
+        console.warn(`[GeofenceMonitoring] API call failed (status ${response.status}) - token may be expired`);
+        return 0;
+      }
 
       const data = await response.json();
       return (data.objects?.length as number) || 0;
-    } catch {
+    } catch (error) {
+      console.warn('[GeofenceMonitoring] Error fetching object count:', error);
       return 0;
     }
   }

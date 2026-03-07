@@ -75,6 +75,7 @@ export function useGeofences(): UseGeofencesResult {
    */
   const fetchGeofences = useCallback(async () => {
     setLoading(true);
+    setRefreshing(true);
     setError(null);
 
     try {
@@ -92,6 +93,7 @@ export function useGeofences(): UseGeofencesResult {
       console.error('[useGeofences] Error fetching:', message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
