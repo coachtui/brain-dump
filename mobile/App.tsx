@@ -10,8 +10,11 @@ export default function App() {
     // Handle notification taps while app is running or backgrounded
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data as any;
-      if (data?.screen === 'Objects' && navigationRef.isReady()) {
-        navigationRef.navigate('Objects', { geofenceId: data.filter?.geofenceId });
+      console.log('[App] Notification tapped:', data);
+
+      if (data?.screen === 'Objects' && data?.geofenceId && navigationRef.isReady()) {
+        console.log('[App] Navigating to Objects screen with geofenceId:', data.geofenceId);
+        navigationRef.navigate('Objects', { geofenceId: data.geofenceId });
       }
     });
 
@@ -19,8 +22,11 @@ export default function App() {
     Notifications.getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
       const data = response.notification.request.content.data as any;
-      if (data?.screen === 'Objects' && navigationRef.isReady()) {
-        navigationRef.navigate('Objects', { geofenceId: data.filter?.geofenceId });
+      console.log('[App] Cold start with notification:', data);
+
+      if (data?.screen === 'Objects' && data?.geofenceId && navigationRef.isReady()) {
+        console.log('[App] Navigating to Objects screen with geofenceId:', data.geofenceId);
+        navigationRef.navigate('Objects', { geofenceId: data.geofenceId });
       }
     });
 

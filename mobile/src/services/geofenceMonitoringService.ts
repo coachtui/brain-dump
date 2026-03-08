@@ -21,6 +21,7 @@ const GEOFENCE_TASK_NAME = 'GEOFENCE_MONITORING_TASK';
 
 export interface GeofenceRegion {
   identifier: string;
+  name: string; // Human-readable geofence name
   latitude: number;
   longitude: number;
   radius: number; // meters
@@ -102,6 +103,15 @@ class GeofenceMonitoringService {
       }
     } catch (err) {
       console.error('[GeofenceMonitoring] Error in event callback:', err);
+    }
+
+    // Check if we should notify for this event type based on geofence preferences
+    const shouldNotify = (event.type === 'enter' && event.region.notifyOnEnter) ||
+                         (event.type === 'exit' && event.region.notifyOnExit);
+
+    if (!shouldNotify) {
+      console.log(`[GeofenceMonitoring] Skipping notification for ${event.type} event (not enabled for this geofence)`);
+      return;
     }
 
     // Show local notification
@@ -278,7 +288,7 @@ class GeofenceMonitoringService {
    * Show local notification for geofence event
    */
   private async showGeofenceNotification(event: GeofenceEvent): Promise<void> {
-    console.log('[GeofenceMonitoring] showGeofenceNotification called for:', event.type, event.region.identifier);
+    console.log('[GeofenceMonitoring] showGeofenceNotification called for:', event.type, event.region.name);
 
     try {
       // Respect quiet hours
@@ -287,14 +297,14 @@ class GeofenceMonitoringService {
         return;
       }
 
-      // TODO: Fetch relevant objects from local database
+      // Fetch relevant objects count
       console.log('[GeofenceMonitoring] Fetching object count...');
       const objectCount = await this.getRelevantObjectCount(event.region.identifier);
       console.log('[GeofenceMonitoring] Object count:', objectCount);
 
       const title = event.type === 'enter'
-        ? `📍 Arrived at ${event.region.identifier}`
-        : `👋 Left ${event.region.identifier}`;
+        ? `📍 Arrived at ${event.region.name}`
+        : `👋 Left ${event.region.name}`;
 
       const body = objectCount > 0
         ? `You have ${objectCount} relevant note${objectCount > 1 ? 's' : ''}`
@@ -307,9 +317,9 @@ class GeofenceMonitoringService {
           body,
           data: {
             geofenceId: event.region.identifier,
+            geofenceName: event.region.name,
             eventType: event.type,
             screen: 'Objects',
-            filter: { geofenceId: event.region.identifier },
           },
           sound: true,
         },
@@ -415,16 +425,19 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }: any) => {
   console.log(`[GeofenceMonitoring] Event type: ${eventType === Location.GeofencingEventType.Enter ? 'ENTER' : 'EXIT'}`);
   console.log(`[GeofenceMonitoring] Region: ${region?.identifier} (lat: ${region?.latitude}, lng: ${region?.longitude}, radius: ${region?.radius}m)`);
 
+  // Get full region metadata from active regions map
+  const activeRegions = geofenceMonitoringService.getActiveRegions();
+  const fullRegion = activeRegions.find(r => r.identifier === region.identifier);
+
+  if (!fullRegion) {
+    console.warn('[GeofenceMonitoring] Region not found in active regions:', region.identifier);
+    console.warn('[GeofenceMonitoring] Background task aborted - geofence may have been disabled');
+    return;
+  }
+
   const event: GeofenceEvent = {
     type: eventType === Location.GeofencingEventType.Enter ? 'enter' : 'exit',
-    region: {
-      identifier: region.identifier,
-      latitude: region.latitude,
-      longitude: region.longitude,
-      radius: region.radius,
-      notifyOnEnter: true,
-      notifyOnExit: true,
-    },
+    region: fullRegion,
     timestamp: new Date(),
   };
 

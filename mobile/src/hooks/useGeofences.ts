@@ -277,6 +277,7 @@ export function useGeofences(): UseGeofencesResult {
   const startMonitoring = async (geofence: Geofence): Promise<void> => {
     const region: GeofenceRegion = {
       identifier: geofence.id,
+      name: geofence.name,
       latitude: geofence.location.latitude,
       longitude: geofence.location.longitude,
       radius: geofence.radius,
@@ -306,6 +307,7 @@ export function useGeofences(): UseGeofencesResult {
       .filter(g => g.enabled)
       .map(g => ({
         identifier: g.id,
+        name: g.name,
         latitude: g.location.latitude,
         longitude: g.location.longitude,
         radius: g.radius,
