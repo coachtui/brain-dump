@@ -47,7 +47,6 @@ function MainStack() {
     >
       <Stack.Screen name="Home" component={HomeScreen} />
       <Stack.Screen name="Record" component={RecordScreen} />
-      <Stack.Screen name="History" component={SessionsScreen} />
       <Stack.Screen name="Objects" component={ObjectsScreen} />
       <Stack.Screen name="Reminders" component={GeofencesScreen} />
       <Stack.Screen

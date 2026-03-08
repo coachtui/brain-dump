@@ -3,7 +3,6 @@ export type RootStackParamList = {
   Register: undefined;
   Home: undefined;
   Record: undefined;
-  History: undefined;
   Objects: { geofenceId?: string; objectId?: string } | undefined;
   Reminders: undefined;
   CreateGeofence: undefined;

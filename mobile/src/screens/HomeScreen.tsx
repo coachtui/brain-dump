@@ -43,14 +43,6 @@ const NAV_ITEMS = [
     iconColor: '#059669',
     iconBg: '#D1FAE5',
   },
-  {
-    icon: 'time-outline' as const,
-    label: 'History',
-    description: 'Past captures',
-    route: 'History' as const,
-    iconColor: '#D97706',
-    iconBg: '#FEF3C7',
-  },
 ] as const;
 
 export function HomeScreen({ navigation }: Props) {
