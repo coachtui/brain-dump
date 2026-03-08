@@ -17,7 +17,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { apiService, WeeklySynthesis, SynthesisRef } from '../services/api';
+import { apiService, WeeklySynthesis, SynthesisRef, DormantIdea } from '../services/api';
+import { AtomicObject } from '../types';
 
 interface SynthesisScreenProps {
   navigation: any;
@@ -32,12 +33,12 @@ export default function SynthesisScreen({ navigation }: SynthesisScreenProps) {
   const [error, setError] = useState<string | null>(null);
 
   // Dormant ideas
-  const [dormantIdeas, setDormantIdeas] = useState<import('../services/api').DormantIdea[]>([]);
+  const [dormantIdeas, setDormantIdeas] = useState<DormantIdea[]>([]);
   const [dormantLoading, setDormantLoading] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
 
   // Decision reviews
-  const [pendingDecisions, setPendingDecisions] = useState<import('../types').AtomicObject[]>([]);
+  const [pendingDecisions, setPendingDecisions] = useState<AtomicObject[]>([]);
   const [decisionReviewText, setDecisionReviewText] = useState<Record<string, string>>({});
   const [submittedDecisions, setSubmittedDecisions] = useState<Set<string>>(new Set());
 
