@@ -278,6 +278,8 @@ class GeofenceMonitoringService {
    * Show local notification for geofence event
    */
   private async showGeofenceNotification(event: GeofenceEvent): Promise<void> {
+    console.log('[GeofenceMonitoring] showGeofenceNotification called for:', event.type, event.region.identifier);
+
     try {
       // Respect quiet hours
       if (this.isInQuietHours()) {
@@ -286,7 +288,9 @@ class GeofenceMonitoringService {
       }
 
       // TODO: Fetch relevant objects from local database
+      console.log('[GeofenceMonitoring] Fetching object count...');
       const objectCount = await this.getRelevantObjectCount(event.region.identifier);
+      console.log('[GeofenceMonitoring] Object count:', objectCount);
 
       const title = event.type === 'enter'
         ? `📍 Arrived at ${event.region.identifier}`
@@ -296,7 +300,8 @@ class GeofenceMonitoringService {
         ? `You have ${objectCount} relevant note${objectCount > 1 ? 's' : ''}`
         : 'Tap to view your notes';
 
-      await Notifications.scheduleNotificationAsync({
+      console.log('[GeofenceMonitoring] Scheduling notification:', title, '|', body);
+      const notifId = await Notifications.scheduleNotificationAsync({
         content: {
           title,
           body,
@@ -311,7 +316,7 @@ class GeofenceMonitoringService {
         trigger: null, // Show immediately
       });
 
-      console.log(`[GeofenceMonitoring] Notification sent: ${title}`);
+      console.log(`[GeofenceMonitoring] Notification scheduled successfully: ${title} (id: ${notifId})`);
     } catch (error) {
       console.error('[GeofenceMonitoring] Error showing notification:', error);
     }
@@ -362,7 +367,9 @@ class GeofenceMonitoringService {
     const quietStart = 22; // 10pm
     const quietEnd = 8; // 8am
 
-    return hour >= quietStart || hour < quietEnd;
+    const inQuietHours = hour >= quietStart || hour < quietEnd;
+    console.log(`[GeofenceMonitoring] Quiet hours check: current hour=${hour}, quiet=${inQuietHours} (${quietStart}:00-${quietEnd}:00)`);
+    return inQuietHours;
   }
 
   /**
@@ -391,7 +398,8 @@ export type { GeofenceRegion, GeofenceEvent, GeofenceEventCallback };
 // MUST be defined at module level (top-level scope) — Expo requirement.
 // Calling defineTask inside a class method or lazy initializer causes silent failures.
 TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }: any) => {
-  console.log('[GeofenceMonitoring] Background task fired');
+  console.log('[GeofenceMonitoring] ========== BACKGROUND TASK FIRED ==========');
+  console.log('[GeofenceMonitoring] Timestamp:', new Date().toISOString());
 
   if (error) {
     console.error('[GeofenceMonitoring] Background task error:', JSON.stringify(error));
@@ -404,7 +412,8 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }: any) => {
   }
 
   const { eventType, region } = data;
-  console.log(`[GeofenceMonitoring] Event: ${eventType === Location.GeofencingEventType.Enter ? 'ENTER' : 'EXIT'} — region: ${region?.identifier}`);
+  console.log(`[GeofenceMonitoring] Event type: ${eventType === Location.GeofencingEventType.Enter ? 'ENTER' : 'EXIT'}`);
+  console.log(`[GeofenceMonitoring] Region: ${region?.identifier} (lat: ${region?.latitude}, lng: ${region?.longitude}, radius: ${region?.radius}m)`);
 
   const event: GeofenceEvent = {
     type: eventType === Location.GeofencingEventType.Enter ? 'enter' : 'exit',
@@ -420,5 +429,7 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }: any) => {
   };
 
   // Show local notification (service instance handles this)
+  console.log('[GeofenceMonitoring] Calling handleGeofenceEvent...');
   await geofenceMonitoringService.handleGeofenceEvent(event);
+  console.log('[GeofenceMonitoring] Background task completed');
 });

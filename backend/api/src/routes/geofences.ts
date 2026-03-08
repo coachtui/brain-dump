@@ -232,7 +232,14 @@ router.put('/:id', async (req: Request, res: Response) => {
         onExit: raw.notifyOnExit ?? false,
       };
     }
+    console.log('[geofences] PUT /:id normalized body:', JSON.stringify(normalizedBody));
     const geofence = await updateGeofence(req.user.id, req.params.id, normalizedBody);
+    console.log('[geofences] PUT /:id result:', JSON.stringify({
+      id: geofence.id,
+      enabled: geofence.notificationSettings.enabled,
+      onEnter: geofence.notificationSettings.onEnter,
+      onExit: geofence.notificationSettings.onExit,
+    }));
     res.json({ geofence });
   } catch (error) {
     if (error instanceof Error) {

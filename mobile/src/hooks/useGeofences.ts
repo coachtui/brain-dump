@@ -148,11 +148,18 @@ export function useGeofences(): UseGeofencesResult {
       setError(null);
 
       try {
-        console.log('[useGeofences] Updating geofence:', id);
+        console.log('[useGeofences] Updating geofence:', id, 'with updates:', JSON.stringify(updates));
 
         const response = await apiService.updateGeofence(id, updates);
 
         const updatedGeofence = response.geofence;
+        console.log('[useGeofences] Received updated geofence from API:', JSON.stringify({
+          id: updatedGeofence.id,
+          enabled: updatedGeofence.enabled,
+          notifyOnEnter: updatedGeofence.notifyOnEnter,
+          notifyOnExit: updatedGeofence.notifyOnExit,
+        }));
+
         setGeofences(prev =>
           prev.map(g => (g.id === id ? updatedGeofence : g))
         );
@@ -160,12 +167,12 @@ export function useGeofences(): UseGeofencesResult {
         // Re-sync monitoring
         await syncMonitoring([updatedGeofence]);
 
-        console.log('[useGeofences] Geofence updated:', id);
+        console.log('[useGeofences] Geofence updated successfully:', id);
         return updatedGeofence;
       } catch (err: any) {
         const message = err.response?.data?.message || err.message || 'Failed to update geofence';
         setError(message);
-        console.error('[useGeofences] Error updating:', message);
+        console.error('[useGeofences] Error updating:', message, err);
         return null;
       } finally {
         setLoading(false);
@@ -207,20 +214,33 @@ export function useGeofences(): UseGeofencesResult {
    */
   const enableGeofence = useCallback(async (id: string): Promise<boolean> => {
     const geofence = geofences.find(g => g.id === id);
-    if (!geofence) return false;
+    if (!geofence) {
+      console.error('[useGeofences] enableGeofence: geofence not found:', id);
+      return false;
+    }
 
     // Check if background permissions granted
     const canMonitor = await locationService.canMonitorGeofences();
     if (!canMonitor.allowed) {
+      console.warn('[useGeofences] enableGeofence: permissions not granted:', canMonitor.reason);
       setError(canMonitor.reason || 'Cannot enable monitoring');
       return false;
     }
 
-    const updated = await updateGeofence(id, { enabled: true } as any);
+    console.log('[useGeofences] enableGeofence: calling updateGeofence with enabled=true for:', id);
+    // Send all notification settings to avoid partial update issues
+    const updated = await updateGeofence(id, {
+      notifyOnEnter: geofence.notifyOnEnter,
+      notifyOnExit: geofence.notifyOnExit,
+      enabled: true,
+    } as any);
+
     if (updated) {
-      await startMonitoring(updated);
+      console.log('[useGeofences] enableGeofence: update successful, enabled=', updated.enabled);
+      // Note: syncMonitoring is already called in updateGeofence, no need to call startMonitoring again
       return true;
     }
+    console.error('[useGeofences] enableGeofence: update failed');
     return false;
   }, [geofences, updateGeofence]);
 
@@ -228,10 +248,28 @@ export function useGeofences(): UseGeofencesResult {
    * Disable geofence monitoring
    */
   const disableGeofence = useCallback(async (id: string): Promise<boolean> => {
-    await geofenceMonitoringService.stopMonitoringRegion(id);
-    const updated = await updateGeofence(id, { enabled: false } as any);
-    return updated !== null;
-  }, [updateGeofence]);
+    console.log('[useGeofences] disableGeofence: calling updateGeofence with enabled=false for:', id);
+    const geofence = geofences.find(g => g.id === id);
+    if (!geofence) {
+      console.error('[useGeofences] disableGeofence: geofence not found:', id);
+      return false;
+    }
+
+    // Send all notification settings to avoid partial update issues
+    const updated = await updateGeofence(id, {
+      notifyOnEnter: geofence.notifyOnEnter,
+      notifyOnExit: geofence.notifyOnExit,
+      enabled: false,
+    } as any);
+
+    if (updated) {
+      console.log('[useGeofences] disableGeofence: update successful, enabled=', updated.enabled);
+      // syncMonitoring in updateGeofence will handle stopping monitoring
+      return true;
+    }
+    console.error('[useGeofences] disableGeofence: update failed');
+    return false;
+  }, [geofences, updateGeofence]);
 
   /**
    * Start OS-level monitoring for a geofence
@@ -261,6 +299,9 @@ export function useGeofences(): UseGeofencesResult {
    * leaving only the last geofence registered with the OS.
    */
   const syncMonitoring = async (geofencesToSync: Geofence[]): Promise<void> => {
+    console.log(`[useGeofences] syncMonitoring called with ${geofencesToSync.length} geofence(s)`);
+    console.log('[useGeofences] Geofence enabled states:', geofencesToSync.map(g => ({ id: g.id, name: g.name, enabled: g.enabled })));
+
     const enabledRegions: GeofenceRegion[] = geofencesToSync
       .filter(g => g.enabled)
       .map(g => ({
@@ -272,9 +313,9 @@ export function useGeofences(): UseGeofencesResult {
         notifyOnExit: g.notifyOnExit,
       }));
 
-    console.log(`[useGeofences] Syncing ${enabledRegions.length} enabled region(s) with OS`);
+    console.log(`[useGeofences] Syncing ${enabledRegions.length} enabled region(s) with OS:`, enabledRegions.map(r => r.identifier));
     await geofenceMonitoringService.syncRegions(enabledRegions);
-    console.log('[useGeofences] Monitoring synced');
+    console.log('[useGeofences] Monitoring synced successfully');
   };
 
   /**

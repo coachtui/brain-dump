@@ -313,18 +313,21 @@ class ApiService {
   /** Map mobile hook shape → backend body shape */
   private toBackendGeofence(data: any): any {
     const { location, notifyOnEnter, notifyOnExit, quietHoursStart, quietHoursEnd, enabled, ...rest } = data;
-    return {
+    const result = {
       ...rest,
       ...(location ? { center: location } : {}),
       notificationSettings: {
-        enabled: enabled ?? true,
-        onEnter: notifyOnEnter ?? true,
-        onExit: notifyOnExit ?? false,
+        enabled: enabled !== undefined ? enabled : true,
+        onEnter: notifyOnEnter !== undefined ? notifyOnEnter : true,
+        onExit: notifyOnExit !== undefined ? notifyOnExit : false,
         ...(quietHoursStart && quietHoursEnd
           ? { quietHours: { start: quietHoursStart, end: quietHoursEnd } }
           : {}),
       },
     };
+    console.log('[apiService] toBackendGeofence input:', JSON.stringify(data));
+    console.log('[apiService] toBackendGeofence output:', JSON.stringify(result));
+    return result;
   }
 
   async getGeofences(): Promise<{ geofences: any[] }> {
