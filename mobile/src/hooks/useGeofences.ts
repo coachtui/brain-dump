@@ -303,6 +303,13 @@ export function useGeofences(): UseGeofencesResult {
     console.log(`[useGeofences] syncMonitoring called with ${geofencesToSync.length} geofence(s)`);
     console.log('[useGeofences] Geofence enabled states:', geofencesToSync.map(g => ({ id: g.id, name: g.name, enabled: g.enabled })));
 
+    // Skip OS registration if background location permission hasn't been granted yet
+    const canMonitor = await locationService.canMonitorGeofences();
+    if (!canMonitor.allowed) {
+      console.log('[useGeofences] syncMonitoring: skipping OS sync — background permission not granted');
+      return;
+    }
+
     const enabledRegions: GeofenceRegion[] = geofencesToSync
       .filter(g => g.enabled)
       .map(g => ({

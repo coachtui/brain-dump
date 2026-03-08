@@ -12,12 +12,36 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
+import { File, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
 // Task name for background geofence monitoring
 const GEOFENCE_TASK_NAME = 'GEOFENCE_MONITORING_TASK';
+
+// Persisted region metadata file — readable by background task JS context
+const REGIONS_FILE_NAME = 'geofence_regions.json';
+
+function persistRegions(regions: GeofenceRegion[]): void {
+  try {
+    new File(Paths.document, REGIONS_FILE_NAME).write(JSON.stringify(regions));
+  } catch (e) {
+    console.warn('[GeofenceMonitoring] Failed to persist regions:', e);
+  }
+}
+
+async function loadPersistedRegions(): Promise<GeofenceRegion[]> {
+  try {
+    const file = new File(Paths.document, REGIONS_FILE_NAME);
+    if (!file.exists) return [];
+    const json = await file.text();
+    return JSON.parse(json) as GeofenceRegion[];
+  } catch (e) {
+    console.warn('[GeofenceMonitoring] Failed to load persisted regions:', e);
+    return [];
+  }
+}
 
 export interface GeofenceRegion {
   identifier: string;
@@ -84,6 +108,8 @@ class GeofenceMonitoringService {
     await Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
         shouldPlaySound: true,
         shouldSetBadge: false,
       }),
@@ -145,6 +171,7 @@ class GeofenceMonitoringService {
 
       // Register ALL active regions in one call (replaces previous set).
       await this.updateActiveRegions();
+      persistRegions(Array.from(this.activeRegions.values()));
 
       console.log(`[GeofenceMonitoring] Now monitoring ${this.activeRegions.size} region(s): [${Array.from(this.activeRegions.keys()).join(', ')}]`);
       return true;
@@ -232,6 +259,7 @@ class GeofenceMonitoringService {
 
     console.log(`[GeofenceMonitoring] syncRegions: registering ${this.activeRegions.size} region(s): [${Array.from(this.activeRegions.keys()).join(', ')}]`);
     await this.updateActiveRegions();
+    persistRegions(Array.from(this.activeRegions.values()));
     console.log('[GeofenceMonitoring] syncRegions: complete');
   }
 
@@ -402,8 +430,7 @@ class GeofenceMonitoringService {
 // Export singleton instance
 export const geofenceMonitoringService = GeofenceMonitoringService.getInstance();
 
-// Export types
-export type { GeofenceRegion, GeofenceEvent, GeofenceEventCallback };
+// (types already exported inline above with `export interface` / `export type`)
 
 // MUST be defined at module level (top-level scope) — Expo requirement.
 // Calling defineTask inside a class method or lazy initializer causes silent failures.
@@ -425,19 +452,29 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }: any) => {
   console.log(`[GeofenceMonitoring] Event type: ${eventType === Location.GeofencingEventType.Enter ? 'ENTER' : 'EXIT'}`);
   console.log(`[GeofenceMonitoring] Region: ${region?.identifier} (lat: ${region?.latitude}, lng: ${region?.longitude}, radius: ${region?.radius}m)`);
 
-  // Get full region metadata from active regions map
-  const activeRegions = geofenceMonitoringService.getActiveRegions();
-  const fullRegion = activeRegions.find(r => r.identifier === region.identifier);
+  // Load region metadata from persisted file (in-memory map is empty in background context)
+  const persistedRegions = await loadPersistedRegions();
+  const fullRegion = persistedRegions.find(r => r.identifier === region.identifier);
 
   if (!fullRegion) {
-    console.warn('[GeofenceMonitoring] Region not found in active regions:', region.identifier);
-    console.warn('[GeofenceMonitoring] Background task aborted - geofence may have been disabled');
-    return;
+    console.warn('[GeofenceMonitoring] Region not found in persisted regions:', region.identifier);
+    console.warn('[GeofenceMonitoring] Falling back to bare region data (no notify prefs)');
+    // Fall back: use bare OS region data — treat as notify-on-both so user gets the alert
   }
+
+  const resolvedRegion: GeofenceRegion = fullRegion ?? {
+    identifier: region.identifier,
+    name: region.identifier,
+    latitude: region.latitude,
+    longitude: region.longitude,
+    radius: region.radius,
+    notifyOnEnter: true,
+    notifyOnExit: true,
+  };
 
   const event: GeofenceEvent = {
     type: eventType === Location.GeofencingEventType.Enter ? 'enter' : 'exit',
-    region: fullRegion,
+    region: resolvedRegion,
     timestamp: new Date(),
   };
 
