@@ -7,14 +7,22 @@ import { AppNavigator } from './src/navigation/AppNavigator';
 import { navigationRef } from './src/navigation/navigationRef';
 
 async function checkForUpdate() {
+  if (!Updates.isEnabled) {
+    console.log('[Updates] Updates not enabled in this build — skipping');
+    return;
+  }
   try {
+    console.log('[Updates] Checking for update...');
     const update = await Updates.checkForUpdateAsync();
     if (update.isAvailable) {
+      console.log('[Updates] Update available — downloading...');
       await Updates.fetchUpdateAsync();
       await Updates.reloadAsync();
+    } else {
+      console.log('[Updates] Already up to date');
     }
-  } catch {
-    // Non-fatal — continue with current bundle
+  } catch (err) {
+    console.warn('[Updates] Check failed:', err);
   }
 }
 
