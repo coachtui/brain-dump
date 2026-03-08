@@ -16,6 +16,17 @@ import type { AtomicObject } from '@shared/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface SynthesisRef {
+  id: string;
+  title: string;
+  objectType: string;
+  domain: string;
+}
+
+interface RefsEntry extends SynthesisRef {
+  refNum: number;
+}
+
 export interface WeeklySynthesis {
   sessionId: string;
   generatedAt: string;
@@ -23,34 +34,44 @@ export interface WeeklySynthesis {
   periodEnd: string;
   objectCount: number;
   domainBreakdown: Record<string, number>;
-  narrative: string;
+  narrative: string;           // paragraphs separated by \n\n
   patterns: string[];
   openThreads: string[];
   contradictions: string[];
   actionableInsights: string[];
-  citedIds: string[];
+  citedIds: string[];          // kept for backward compat
+  citedObjects: SynthesisRef[]; // human-friendly cited notes
 }
 
 // ─── Corpus builder ───────────────────────────────────────────────────────────
 
-function buildCorpus(objects: AtomicObject[]): string {
-  if (objects.length === 0) return '(No notes captured this week)';
+function buildCorpus(objects: AtomicObject[]): { corpus: string; refsIndex: RefsEntry[] } {
+  if (objects.length === 0) return { corpus: '(No notes captured this week)', refsIndex: [] };
 
-  return objects
-    .map((obj) => {
-      const date = new Date(obj.createdAt).toLocaleDateString('en-US', {
-        weekday: 'short', month: 'short', day: 'numeric',
-      });
-      const type = obj.objectType ?? 'note';
-      const domain = obj.domain ?? 'unknown';
-      const text = (obj.cleanedText ?? obj.content).slice(0, 200);
-      const title = obj.title ? `"${obj.title}" — ` : '';
-      const action = obj.actionability?.isActionable && obj.actionability.nextAction
-        ? ` [Next: ${obj.actionability.nextAction.slice(0, 80)}]`
-        : '';
-      return `[${date}] ${type}/${domain} — ${title}${text}${action} (id:${obj.id})`;
-    })
-    .join('\n');
+  const refsIndex: RefsEntry[] = [];
+  const lines = objects.map((obj, i) => {
+    const refNum = i + 1;
+    const date = new Date(obj.createdAt).toLocaleDateString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric',
+    });
+    const type = obj.objectType ?? 'note';
+    const domain = obj.domain ?? 'unknown';
+    const text = (obj.cleanedText ?? obj.content).slice(0, 200);
+    const titleStr = obj.title ? `"${obj.title}" — ` : '';
+    const action = obj.actionability?.isActionable && obj.actionability.nextAction
+      ? ` [Next: ${obj.actionability.nextAction.slice(0, 80)}]`
+      : '';
+    refsIndex.push({
+      refNum,
+      id: obj.id,
+      title: obj.title || text.slice(0, 60),
+      objectType: type,
+      domain,
+    });
+    return `[${date}] ${type}/${domain} — ${titleStr}${text}${action} [ref_${refNum}]`;
+  });
+
+  return { corpus: lines.join('\n'), refsIndex };
 }
 
 function domainBreakdown(objects: AtomicObject[]): Record<string, number> {
@@ -68,6 +89,8 @@ const SYNTHESIS_SYSTEM_PROMPT = `You are a weekly synthesis agent for a personal
 
 Your job is to analyze the user's captured notes from the past week and generate a structured reflection that helps them understand their own thinking patterns.
 
+Each note in the corpus is tagged with [ref_N] at the end of its line. Use these numbers to cite sources.
+
 RULES:
 1. Be specific — reference actual content from the notes
 2. Find cross-domain patterns (e.g. stress appearing in both work and health notes)
@@ -76,16 +99,19 @@ RULES:
 5. Extract concrete next actions from actionable items
 6. Write in second person ("You've been thinking about...", "You mentioned...")
 7. If there's not enough data, say so honestly — do not pad with generic advice
+8. In the narrative, separate each paragraph with a blank line (\\n\\n)
 
 RETURN valid JSON with this exact structure:
 {
-  "narrative": "2–3 paragraph reflective summary of the week",
+  "narrative": "2–3 paragraphs separated by \\n\\n. Be specific and personal.",
   "patterns": ["recurring theme or pattern 1", "..."],
   "open_threads": ["unresolved question or pending decision 1", "..."],
   "contradictions": ["brief description of a contradiction, or empty array if none"],
   "actionable_insights": ["concrete next step 1", "..."],
-  "cited_ids": ["objectId1", "objectId2"]
-}`;
+  "cited_refs": [1, 3, 5]
+}
+
+IMPORTANT: cited_refs must be an array of reference NUMBERS (integers) from the [ref_N] tags — not strings, not IDs.`;
 
 async function callLLM(userMessage: string): Promise<string> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
@@ -139,39 +165,61 @@ async function callLLM(userMessage: string): Promise<string> {
   }
 }
 
-function parseLLMResponse(raw: string): {
+// Strip [ref_N] and [N] artifacts that may leak into text fields
+function cleanText(s: string): string {
+  return s.replace(/\[ref_\d+\]/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+function parseLLMResponse(
+  raw: string,
+  refsIndex: RefsEntry[]
+): {
   narrative: string;
   patterns: string[];
   openThreads: string[];
   contradictions: string[];
   actionableInsights: string[];
   citedIds: string[];
+  citedObjects: SynthesisRef[];
 } {
+  const empty = {
+    narrative: raw,
+    patterns: [],
+    openThreads: [],
+    contradictions: [],
+    actionableInsights: [],
+    citedIds: [],
+    citedObjects: [],
+  };
+
   try {
     let text = raw.trim();
     if (text.startsWith('```json')) text = text.slice(7);
     if (text.startsWith('```')) text = text.slice(3);
     if (text.endsWith('```')) text = text.slice(0, -3);
     const parsed = JSON.parse(text.trim());
+
+    // Resolve cited_refs (numbers) → full objects
+    const citedRefs: number[] = Array.isArray(parsed.cited_refs) ? parsed.cited_refs : [];
+    const citedObjects: SynthesisRef[] = citedRefs
+      .map((n) => refsIndex.find((r) => r.refNum === n))
+      .filter((r): r is RefsEntry => r !== undefined)
+      .map(({ id, title, objectType, domain }) => ({ id, title, objectType, domain }));
+    const citedIds = citedObjects.map((o) => o.id);
+
     return {
       narrative: parsed.narrative || 'No narrative generated.',
-      patterns: Array.isArray(parsed.patterns) ? parsed.patterns : [],
-      openThreads: Array.isArray(parsed.open_threads) ? parsed.open_threads : [],
-      contradictions: Array.isArray(parsed.contradictions) ? parsed.contradictions : [],
+      patterns: Array.isArray(parsed.patterns) ? parsed.patterns.map(cleanText) : [],
+      openThreads: Array.isArray(parsed.open_threads) ? parsed.open_threads.map(cleanText) : [],
+      contradictions: Array.isArray(parsed.contradictions) ? parsed.contradictions.map(cleanText) : [],
       actionableInsights: Array.isArray(parsed.actionable_insights)
-        ? parsed.actionable_insights
+        ? parsed.actionable_insights.map(cleanText)
         : [],
-      citedIds: Array.isArray(parsed.cited_ids) ? parsed.cited_ids : [],
+      citedIds,
+      citedObjects,
     };
   } catch {
-    return {
-      narrative: raw,
-      patterns: [],
-      openThreads: [],
-      contradictions: [],
-      actionableInsights: [],
-      citedIds: [],
-    };
+    return empty;
   }
 }
 
@@ -222,7 +270,7 @@ export async function generateWeeklySynthesis(
   const corpus = [...actionable, ...rest].slice(0, 100);
 
   const breakdown = domainBreakdown(corpus);
-  const corpusText = buildCorpus(corpus);
+  const { corpus: corpusText, refsIndex } = buildCorpus(corpus);
 
   const domainSummary = Object.entries(breakdown)
     .sort((a, b) => b[1] - a[1])
@@ -239,7 +287,7 @@ ${corpusText}
 Generate a weekly synthesis.`;
 
   const rawResponse = await callLLM(userMessage);
-  const parsed = parseLLMResponse(rawResponse);
+  const parsed = parseLLMResponse(rawResponse, refsIndex);
 
   const synthesis: WeeklySynthesis = {
     sessionId: '', // filled after save

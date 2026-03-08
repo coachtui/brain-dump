@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { apiService, WeeklySynthesis } from '../services/api';
+import { apiService, WeeklySynthesis, SynthesisRef } from '../services/api';
 
 interface SynthesisScreenProps {
   navigation: any;
@@ -179,9 +179,15 @@ export default function SynthesisScreen({ navigation }: SynthesisScreenProps) {
               </View>
             )}
 
-            {/* Narrative */}
+            {/* Narrative — split into paragraphs */}
             <Section title="This Week" icon="📖">
-              <Text style={styles.narrative}>{synthesis.narrative}</Text>
+              {synthesis.narrative
+                .split(/\n\n+/)
+                .map((para, i) => (
+                  <Text key={i} style={[styles.narrative, i > 0 && styles.narrativeParagraph]}>
+                    {para.trim()}
+                  </Text>
+                ))}
             </Section>
 
             {/* Patterns */}
@@ -209,6 +215,13 @@ export default function SynthesisScreen({ navigation }: SynthesisScreenProps) {
             {synthesis.contradictions.length > 0 && (
               <Section title="Contradictions" icon="⚡">
                 <BulletList items={synthesis.contradictions} color="#ef4444" />
+              </Section>
+            )}
+
+            {/* Cited Notes */}
+            {synthesis.citedObjects && synthesis.citedObjects.length > 0 && (
+              <Section title="Cited Notes" icon="🔗">
+                <CitedNotes refs={synthesis.citedObjects} />
               </Section>
             )}
 
@@ -263,6 +276,41 @@ function Section({
         {icon} {title}
       </Text>
       {children}
+    </View>
+  );
+}
+
+function CitedNotes({ refs }: { refs: SynthesisRef[] }) {
+  const DOMAIN_COLORS: Record<string, string> = {
+    work: '#3b82f6',
+    personal: '#8b5cf6',
+    health: '#10b981',
+    family: '#f59e0b',
+    finance: '#ef4444',
+    project: '#6366f1',
+    misc: '#6b7280',
+    unknown: '#4b5563',
+  };
+  const TYPE_LABELS: Record<string, string> = {
+    task: 'Task', reminder: 'Reminder', idea: 'Idea', decision: 'Decision',
+    question: 'Question', observation: 'Obs.', journal: 'Journal', reference: 'Ref.',
+  };
+
+  return (
+    <View style={styles.citedList}>
+      {refs.map((ref) => (
+        <View key={ref.id} style={styles.citedRow}>
+          <View style={styles.citedBadges}>
+            <View style={[styles.badge, { backgroundColor: DOMAIN_COLORS[ref.domain] ?? '#4b5563' }]}>
+              <Text style={styles.badgeText}>{ref.domain}</Text>
+            </View>
+            <View style={styles.typeBadge}>
+              <Text style={styles.typeBadgeText}>{TYPE_LABELS[ref.objectType] ?? ref.objectType}</Text>
+            </View>
+          </View>
+          <Text style={styles.citedTitle} numberOfLines={2}>{ref.title}</Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -380,6 +428,30 @@ const styles = StyleSheet.create({
     color: '#d1d5db',
     lineHeight: 22,
   },
+  narrativeParagraph: {
+    marginTop: 12,
+  },
+
+  // Cited notes
+  citedList: { gap: 10 },
+  citedRow: { gap: 4 },
+  citedBadges: { flexDirection: 'row', gap: 6 },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  badgeText: { fontSize: 11, fontWeight: '600', color: '#fff' },
+  typeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#1f2937',
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  typeBadgeText: { fontSize: 11, color: '#9ca3af' },
+  citedTitle: { fontSize: 13, color: '#d1d5db', lineHeight: 18 },
 
   // Bullets
   bulletList: { gap: 8 },

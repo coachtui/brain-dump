@@ -7,7 +7,14 @@ import {
   AtomicObject,
 } from '../types';
 
-// Synthesis type
+// Synthesis types
+export interface SynthesisRef {
+  id: string;
+  title: string;
+  objectType: string;
+  domain: string;
+}
+
 export interface WeeklySynthesis {
   sessionId: string;
   generatedAt: string;
@@ -15,12 +22,13 @@ export interface WeeklySynthesis {
   periodEnd: string;
   objectCount: number;
   domainBreakdown: Record<string, number>;
-  narrative: string;
+  narrative: string;           // paragraphs separated by \n\n
   patterns: string[];
   openThreads: string[];
   contradictions: string[];
   actionableInsights: string[];
   citedIds: string[];
+  citedObjects?: SynthesisRef[]; // human-friendly cited notes
 }
 
 // Backend response types
