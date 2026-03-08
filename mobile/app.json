@@ -64,6 +64,7 @@
       [
         "expo-location",
         {
+          "isIosBackgroundLocationEnabled": true,
           "locationAlwaysAndWhenInUsePermission": "Used for background geofence monitoring so you receive relevant notes when you arrive at a location.",
           "locationAlwaysPermission": "Used for background geofence monitoring so you receive relevant notes when you arrive at a location.",
           "locationWhenInUsePermission": "Used to attach location to notes and create geofences."
