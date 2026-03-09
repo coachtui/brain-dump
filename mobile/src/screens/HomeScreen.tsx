@@ -74,6 +74,7 @@ export function HomeScreen({ navigation }: Props) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isSearchMode = searchQuery.trim().length > 0;
+  const [recentExpanded, setRecentExpanded] = useState(true);
 
   // Fetch recent captures on mount
   useEffect(() => {
@@ -248,19 +249,30 @@ export function HomeScreen({ navigation }: Props) {
 
           {/* Recent captures */}
           <View style={styles.recentSection}>
-            <Text style={styles.recentSectionTitle}>Recent captures</Text>
+            <TouchableOpacity
+              style={styles.recentSectionHeader}
+              onPress={() => setRecentExpanded((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.recentSectionTitle}>Recent captures</Text>
+              <Ionicons
+                name={recentExpanded ? 'chevron-up' : 'chevron-down'}
+                size={15}
+                color="#9CA3AF"
+              />
+            </TouchableOpacity>
 
-            {recentLoading ? (
+            {recentExpanded && recentLoading ? (
               <ActivityIndicator
                 size="small"
                 color="#9CA3AF"
                 style={{ marginTop: 16 }}
               />
-            ) : recentObjects.length === 0 ? (
+            ) : recentExpanded && recentObjects.length === 0 ? (
               <Text style={styles.recentEmpty}>
                 Your captured thoughts will appear here
               </Text>
-            ) : (
+            ) : recentExpanded ? (
               recentObjects.map((obj) => (
                 <TouchableOpacity
                   key={obj.id}
@@ -291,7 +303,7 @@ export function HomeScreen({ navigation }: Props) {
                   <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
                 </TouchableOpacity>
               ))
-            )}
+            ) : null}
           </View>
         </ScrollView>
       )}
@@ -404,13 +416,18 @@ const styles = StyleSheet.create({
   recentSection: {
     // no extra margin needed — grid has marginBottom:32
   },
+  recentSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   recentSectionTitle: {
     fontSize: 13,
     fontWeight: '600',
     color: '#6B7280',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
-    marginBottom: 12,
   },
   recentRow: {
     flexDirection: 'row',

@@ -11,9 +11,9 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAI, AIMessage } from '../hooks/useAI';
+import { AppScreen, AppHeader, Colors, Spacing } from '../components/ui';
 
 export default function AIQueryScreen({ navigation, route }: any) {
   const initialQuery: string | undefined = route?.params?.initialQuery;
@@ -115,24 +115,23 @@ export default function AIQueryScreen({ navigation, route }: any) {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#374151" />
-        </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Ask Offload</Text>
-          <Text style={styles.headerSubtitle}>
-            {messages.length === 0 ? 'Ask me anything' : `${messages.length} messages`}
-          </Text>
-        </View>
-        {messages.length > 0 && (
-          <TouchableOpacity onPress={clearConversation}>
-            <Ionicons name="trash-outline" size={22} color="#EF4444" />
+    <AppScreen>
+      <AppHeader
+        title="Ask Offload"
+        subtitle={messages.length === 0 ? 'Ask me anything' : `${messages.length} messages`}
+        left={
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color={Colors.textSecondary} />
           </TouchableOpacity>
-        )}
-      </View>
+        }
+        right={
+          messages.length > 0 ? (
+            <TouchableOpacity onPress={clearConversation}>
+              <Ionicons name="trash-outline" size={22} color={Colors.error} />
+            </TouchableOpacity>
+          ) : undefined
+        }
+      />
 
       {/* Error Banner */}
       {error && (
@@ -194,7 +193,7 @@ export default function AIQueryScreen({ navigation, route }: any) {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
@@ -206,34 +205,6 @@ const EXAMPLE_QUESTIONS = [
 ];
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  headerTitleContainer: {
-    flex: 1,
-    marginLeft: 16,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 2,
-  },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',

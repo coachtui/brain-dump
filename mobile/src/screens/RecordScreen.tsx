@@ -7,11 +7,11 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useDeepgramTranscription } from '../hooks/useDeepgramTranscription';
 import { RootStackParamList } from '../navigation/types';
+import { AppScreen, AppHeader, Colors } from '../components/ui';
 
 type RecordScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Record'>;
 
@@ -88,20 +88,22 @@ export function RecordScreen({ navigation }: Props) {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#374151" />
-        </TouchableOpacity>
-        <Text style={styles.title}>Record</Text>
-        <View style={styles.headerRight}>
-          {(hasTranscript || isDone) && (
+    <AppScreen>
+      <AppHeader
+        title="Record"
+        left={
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        }
+        right={
+          (hasTranscript || isDone) ? (
             <TouchableOpacity onPress={reset}>
               <Text style={styles.clearButton}>Clear</Text>
             </TouchableOpacity>
-          )}
-        </View>
-      </View>
+          ) : undefined
+        }
+      />
 
       <View style={styles.statusBar}>
         <View style={[styles.statusIndicator, { backgroundColor: getStatusColor() }]} />
@@ -210,7 +212,7 @@ export function RecordScreen({ navigation }: Props) {
             : 'Tap to record'}
         </Text>
       </View>
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
@@ -260,28 +262,6 @@ function ContraDetailBanner({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E5E7EB',
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  headerRight: {
-    minWidth: 50,
-    alignItems: 'flex-end',
-  },
   clearButton: {
     color: '#6B7280',
     fontSize: 14,

@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
+  Alert,
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
@@ -14,6 +14,8 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/types';
@@ -22,6 +24,7 @@ import { useSearch } from '../hooks/useSearch';
 import { AtomicObject } from '../types';
 import type { RagSearchResult, DashboardMetrics } from '../services/api';
 import { apiService } from '../services/api';
+import { AppScreen, AppHeader, AppSearchBar, Colors, Spacing, Radius } from '../components/ui';
 
 type ObjectsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Objects'>;
 
@@ -575,12 +578,12 @@ export function ObjectsScreen({ navigation }: Props) {
       <View style={styles.emptyState}>
         <Text style={styles.emptyStateIcon}>{hasFilters ? '🔍' : '🧠'}</Text>
         <Text style={styles.emptyStateTitle}>
-          {hasFilters ? 'No Results' : 'No Objects Yet'}
+          {hasFilters ? 'No Results' : 'No Notes Yet'}
         </Text>
         <Text style={styles.emptyStateText}>
           {hasFilters
             ? 'Try adjusting your search or filters'
-            : 'Your extracted thoughts and ideas will appear here'}
+            : 'Your captured thoughts and ideas will appear here'}
         </Text>
         {hasFilters && (
           <TouchableOpacity style={styles.clearFiltersButton} onPress={handleClearFilters}>
@@ -614,29 +617,25 @@ export function ObjectsScreen({ navigation }: Props) {
   }, [error, refresh]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Atomic Objects</Text>
-        <View style={styles.headerRight} />
-      </View>
+    <AppScreen>
+      <AppHeader
+        title="Notes"
+        left={
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        }
+      />
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search objects..."
-          placeholderTextColor="#666"
+        <AppSearchBar
           value={searchText}
           onChangeText={setSearchText}
-          onSubmitEditing={handleSearch}
-          returnKeyType="search"
+          placeholder="Search notes..."
+          onSubmit={handleSearch}
+          loading={searchLoading && isSearchMode}
         />
-        <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
-          <Text style={styles.searchButtonText}>Search</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Domain + Type Filter Chips */}
@@ -698,28 +697,30 @@ export function ObjectsScreen({ navigation }: Props) {
         presentationStyle="pageSheet"
         onRequestClose={handleCloseModal}
       >
-        <SafeAreaView style={styles.modalContainer}>
+        <SafeAreaView style={styles.modalContainer} edges={['top']}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.modalKeyboardView}
           >
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={handleCloseModal}>
-                <Text style={styles.modalCloseButton}>Close</Text>
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>Object Details</Text>
-              {selectedObject && !editMode ? (
-                <TouchableOpacity onPress={handleEditPress}>
-                  <Text style={styles.modalEditButton}>Edit</Text>
+            <AppHeader
+              title="Note"
+              left={
+                <TouchableOpacity onPress={handleCloseModal}>
+                  <Ionicons name="close" size={24} color={Colors.textSecondary} />
                 </TouchableOpacity>
-              ) : editMode ? (
-                <TouchableOpacity onPress={handleCancelEdit}>
-                  <Text style={styles.modalCancelButton}>Cancel</Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.headerRight} />
-              )}
-            </View>
+              }
+              right={
+                selectedObject && !editMode ? (
+                  <TouchableOpacity onPress={handleEditPress}>
+                    <Text style={styles.modalEditButton}>Edit</Text>
+                  </TouchableOpacity>
+                ) : editMode ? (
+                  <TouchableOpacity onPress={handleCancelEdit}>
+                    <Text style={styles.modalCancelButton}>Cancel</Text>
+                  </TouchableOpacity>
+                ) : undefined
+              }
+            />
 
             {isLoadingDetail ? (
               <View style={styles.modalLoading}>
@@ -879,7 +880,7 @@ export function ObjectsScreen({ navigation }: Props) {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
@@ -893,122 +894,68 @@ function DashStat({ label, value }: { label: string; value: number }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
-  },
-  backButton: {
-    color: '#3b82f6',
-    fontSize: 16,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  headerRight: {
-    width: 50,
-  },
   // Search
   searchContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
+    paddingHorizontal: Spacing.xxl,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.bg,
   },
-  searchInput: {
-    flex: 1,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    color: '#fff',
-    fontSize: 14,
-  },
-  searchButton: {
-    backgroundColor: '#3b82f6',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-  },
-  searchButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
+  headerRight: { width: 50 },
   // Filter chips
   chipsContainer: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
   },
-  chipRow: {
-    height: 44,
-  },
+  chipRow: { height: 44 },
   chipRowContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 8,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    gap: Spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
   },
   chip: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 16,
-    paddingHorizontal: 12,
+    backgroundColor: Colors.bgMuted,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing.md,
     paddingVertical: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.border,
   },
   chipText: {
-    color: '#888',
+    color: Colors.textMuted,
     fontSize: 12,
     textTransform: 'capitalize',
   },
-  chipTextSelected: {
-    color: '#fff',
-  },
-  scoreText: {
-    color: '#3b82f6',
-    fontSize: 12,
-    fontWeight: '600',
-  },
+  chipTextSelected: { color: '#FFFFFF' },
+  scoreText: { color: Colors.accent, fontSize: 12, fontWeight: '600' },
   searchResultTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#fff',
+    color: Colors.text,
     marginBottom: 4,
   },
   // Loading
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    color: '#666',
-    fontSize: 14,
-  },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, color: Colors.textMuted, fontSize: 14 },
   // List
-  listContent: {
-    padding: 16,
-  },
-  listEmpty: {
-    flex: 1,
-  },
+  listContent: { padding: Spacing.lg },
+  listEmpty: { flex: 1 },
   // Object Card
   objectCard: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: Colors.bgSurface,
+    borderRadius: Radius.md,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -1016,15 +963,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  categoryTags: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
+  categoryTags: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   categoryTag: {
     borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
   },
   categoryTagText: {
     color: '#fff',
@@ -1032,406 +975,168 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textTransform: 'capitalize',
   },
-  moreCategoriesText: {
-    color: '#666',
-    fontSize: 10,
-  },
-  urgencyBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  urgencyDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 4,
-  },
-  urgencyText: {
-    color: '#888',
-    fontSize: 10,
-    textTransform: 'capitalize',
-  },
-  contentPreview: {
-    fontSize: 14,
-    color: '#fff',
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  dateText: {
-    fontSize: 12,
-    color: '#666',
-  },
-  tagsContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  tagText: {
-    fontSize: 10,
-    color: '#3b82f6',
-  },
+  moreCategoriesText: { color: Colors.textFaint, fontSize: 10 },
+  urgencyBadge: { flexDirection: 'row', alignItems: 'center' },
+  urgencyDot: { width: 6, height: 6, borderRadius: 3, marginRight: 4 },
+  urgencyText: { color: Colors.textMuted, fontSize: 10, textTransform: 'capitalize' },
+  contentPreview: { fontSize: 14, color: Colors.text, lineHeight: 20, marginBottom: 8 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  dateText: { fontSize: 12, color: Colors.textFaint },
+  tagsContainer: { flexDirection: 'row', gap: 8 },
+  tagText: { fontSize: 10, color: Colors.accent },
   // Empty State
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 48,
-  },
-  emptyStateIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyStateTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-  },
+  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 48 },
+  emptyStateIcon: { fontSize: 64, marginBottom: 16 },
+  emptyStateTitle: { fontSize: 20, fontWeight: '600', color: Colors.text, marginBottom: 8 },
+  emptyStateText: { fontSize: 14, color: Colors.textMuted, textAlign: 'center' },
   clearFiltersButton: {
     marginTop: 16,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
+    backgroundColor: Colors.accentLight,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Colors.accentBorder,
   },
-  clearFiltersText: {
-    color: '#3b82f6',
-    fontSize: 14,
-  },
-  loadingFooter: {
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
+  clearFiltersText: { color: Colors.accent, fontSize: 14, fontWeight: '600' },
+  loadingFooter: { paddingVertical: 16, alignItems: 'center' },
   // Error
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 48,
-  },
-  errorIcon: {
-    fontSize: 48,
-    marginBottom: 16,
-    color: '#ef4444',
-  },
-  errorText: {
-    fontSize: 14,
-    color: '#ef4444',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
+  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 48 },
+  errorIcon: { fontSize: 48, marginBottom: 16, color: Colors.error },
+  errorText: { fontSize: 14, color: Colors.error, textAlign: 'center', marginBottom: 16 },
   retryButton: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: Colors.accent,
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: Radius.sm,
   },
-  retryButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
+  retryButtonText: { color: '#fff', fontWeight: '600' },
   // Modal
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-  },
-  modalKeyboardView: {
-    flex: 1,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
-  },
-  modalCloseButton: {
-    color: '#3b82f6',
-    fontSize: 16,
-  },
-  modalEditButton: {
-    color: '#3b82f6',
-    fontSize: 16,
-  },
-  modalCancelButton: {
-    color: '#ef4444',
-    fontSize: 16,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  modalLoading: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    flex: 1,
-    padding: 24,
-  },
+  modalContainer: { flex: 1, backgroundColor: Colors.bg },
+  modalKeyboardView: { flex: 1 },
+  modalEditButton: { color: Colors.accent, fontSize: 15, fontWeight: '600' },
+  modalCancelButton: { color: Colors.error, fontSize: 15, fontWeight: '600' },
+  modalLoading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  modalContent: { flex: 1, padding: Spacing.xxl },
   // Detail Sections
-  detailSection: {
-    marginBottom: 24,
-  },
+  detailSection: { marginBottom: Spacing.xxl },
   detailLabel: {
     fontSize: 12,
-    color: '#888',
+    fontWeight: '600',
+    color: Colors.textMuted,
     marginBottom: 8,
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  detailCategoryTags: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  contentText: {
-    fontSize: 16,
-    color: '#fff',
-    lineHeight: 24,
-  },
+  detailCategoryTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  contentText: { fontSize: 16, color: Colors.text, lineHeight: 24 },
   editInput: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
-    padding: 16,
-    color: '#fff',
+    backgroundColor: Colors.bgMuted,
+    borderRadius: Radius.sm,
+    padding: Spacing.lg,
+    color: Colors.text,
     fontSize: 16,
     lineHeight: 24,
     minHeight: 120,
     textAlignVertical: 'top',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.border,
   },
-  editActions: {
-    marginBottom: 24,
-  },
-  updateError: {
-    color: '#ef4444',
-    fontSize: 14,
-    marginBottom: 12,
-  },
+  editActions: { marginBottom: Spacing.xxl },
+  updateError: { color: Colors.error, fontSize: 14, marginBottom: 12 },
   saveButton: {
-    backgroundColor: '#22c55e',
-    borderRadius: 8,
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.sm,
     paddingVertical: 14,
     alignItems: 'center',
   },
-  saveButtonDisabled: {
-    opacity: 0.6,
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 16,
-  },
+  saveButtonDisabled: { opacity: 0.6 },
+  saveButtonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
   metadataRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
   },
-  metadataLabel: {
-    color: '#666',
-    fontSize: 14,
-    width: 100,
-  },
-  metadataValue: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  tagsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
+  metadataLabel: { color: Colors.textMuted, fontSize: 14, width: 100 },
+  metadataValue: { color: Colors.text, fontSize: 14, flex: 1 },
+  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   detailTag: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: Colors.accentLight,
     borderRadius: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.accentBorder,
   },
-  detailTagText: {
-    color: '#3b82f6',
-    fontSize: 12,
-  },
+  detailTagText: { color: Colors.accent, fontSize: 12, fontWeight: '500' },
   entityRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
   },
-  entityType: {
-    color: '#888',
-    fontSize: 12,
-    width: 100,
-    textTransform: 'capitalize',
-  },
-  entityValue: {
-    color: '#fff',
-    fontSize: 14,
-    flex: 1,
-  },
+  entityType: { color: Colors.textMuted, fontSize: 12, width: 100, textTransform: 'capitalize' },
+  entityValue: { color: Colors.text, fontSize: 14, flex: 1 },
   // Geofence context banner
   geofenceBanner: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
-    backgroundColor: '#000d1a',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
+    backgroundColor: '#EFF6FF',
     paddingBottom: 12,
   },
-  geofenceBannerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  geofenceDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#3b82f6',
-  },
-  geofenceBannerTitle: {
-    color: '#3b82f6',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  geofenceCard: {
-    backgroundColor: '#001428',
-    borderColor: '#1a3a5c',
-  },
-  geofenceCardLabel: {
-    color: '#3b82f6',
-    fontSize: 10,
-    fontWeight: '700',
-    marginBottom: 4,
-    textTransform: 'uppercase',
-  },
+  geofenceBannerHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
+  geofenceDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#3b82f6' },
+  geofenceBannerTitle: { color: '#1d4ed8', fontSize: 13, fontWeight: '600' },
+  geofenceCard: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+  geofenceCardLabel: { color: '#3b82f6', fontSize: 10, fontWeight: '700', marginBottom: 4, textTransform: 'uppercase' },
   // Stale actionables
   staleBanner: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
-    backgroundColor: '#0f0a00',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.warningBg,
   },
-  staleBannerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  staleBannerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  staleDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#f59e0b',
-  },
-  staleBannerTitle: {
-    color: '#f59e0b',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  staleBannerChevron: {
-    color: '#666',
-    fontSize: 10,
-  },
-  staleCardsRow: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    gap: 10,
-    flexDirection: 'row',
-  },
+  staleBannerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10 },
+  staleBannerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  staleDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#f59e0b' },
+  staleBannerTitle: { color: Colors.warning, fontSize: 13, fontWeight: '600' },
+  staleBannerChevron: { color: Colors.textFaint, fontSize: 10 },
+  staleCardsRow: { paddingHorizontal: 16, paddingBottom: 12, gap: 10, flexDirection: 'row' },
   staleCard: {
     width: 160,
-    backgroundColor: '#1a1200',
+    backgroundColor: Colors.bg,
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#3a2a00',
+    borderColor: Colors.warningBorder,
   },
-  staleCardAge: {
-    color: '#f59e0b',
-    fontSize: 10,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  staleCardContent: {
-    color: '#fff',
-    fontSize: 12,
-    lineHeight: 16,
-    marginBottom: 4,
-  },
-  staleCardAction: {
-    color: '#888',
-    fontSize: 11,
-    fontStyle: 'italic',
-  },
-
+  staleCardAge: { color: Colors.warning, fontSize: 10, fontWeight: '700', marginBottom: 4 },
+  staleCardContent: { color: Colors.text, fontSize: 12, lineHeight: 16, marginBottom: 4 },
+  staleCardAction: { color: Colors.textMuted, fontSize: 11, fontStyle: 'italic' },
   // Dashboard card
   dashboardCard: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: Colors.bgSurface,
     marginHorizontal: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: '#222',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
   },
-  dashboardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
+  dashboardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
   dashboardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dashboardLoadDot: { width: 8, height: 8, borderRadius: 4 },
-  dashboardTitle: { color: '#ccc', fontSize: 13, fontWeight: '600' },
-  dashboardChevron: { color: '#555', fontSize: 11 },
+  dashboardTitle: { color: Colors.text, fontSize: 13, fontWeight: '600' },
+  dashboardChevron: { color: Colors.textFaint, fontSize: 11 },
   dashboardBody: { paddingHorizontal: 16, paddingBottom: 12 },
-  dashboardGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 8,
-  },
-  dashStat: {
-    backgroundColor: '#222',
-    borderRadius: 8,
-    padding: 10,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  dashStatValue: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  dashStatLabel: { color: '#666', fontSize: 10, marginTop: 2 },
-  dashboardTopDomain: { color: '#666', fontSize: 12 },
-
+  dashboardGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  dashStat: { backgroundColor: Colors.bgMuted, borderRadius: Radius.sm, padding: 10, minWidth: 80, alignItems: 'center' },
+  dashStatValue: { color: Colors.text, fontSize: 18, fontWeight: '700' },
+  dashStatLabel: { color: Colors.textMuted, fontSize: 10, marginTop: 2 },
+  dashboardTopDomain: { color: Colors.textMuted, fontSize: 12 },
   // State badge
   stateRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
-  stateBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
+  stateBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
   stateBadgeText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  stateChangeBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  stateChangeBtnText: { color: '#888', fontSize: 12 },
+  stateChangeBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: Colors.border },
+  stateChangeBtnText: { color: Colors.textSecondary, fontSize: 12 },
 });
