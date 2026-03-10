@@ -49,12 +49,12 @@ const FEATURES = [
   {
     title: 'Ask Offload',
     description:
-      'Search your notes with natural language or ask questions across everything you've captured.',
+      "Search your notes with natural language or ask questions across everything you've captured.",
   },
   {
     title: 'Insights',
     description:
-      'Weekly summaries show patterns and recurring themes across what you've captured.',
+      "Weekly summaries show patterns and recurring themes across what you've captured.",
   },
 ];
 
