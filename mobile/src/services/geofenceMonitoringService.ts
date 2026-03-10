@@ -233,10 +233,24 @@ class GeofenceMonitoringService {
    * Sync the full desired set of regions atomically.
    * Replaces activeRegions map entirely and makes a single startGeofencingAsync call.
    * Use this for bulk syncs (e.g. on app launch or after fetching geofences from server).
+   *
+   * Skips startGeofencingAsync if the incoming set is identical to what's already registered —
+   * iOS fires a spurious ENTER event for regions the device is currently inside every time
+   * startGeofencingAsync is called, so avoiding redundant calls prevents false notifications.
    */
   async syncRegions(regions: GeofenceRegion[]): Promise<void> {
     if (!this.initialized) {
       await this.initialize();
+    }
+
+    // If the set is identical to what's already registered, just update in-memory metadata
+    // (quietHours etc.) and skip the OS call to avoid iOS's spurious ENTER events.
+    if (this.activeRegions.size > 0 && this.regionsUnchanged(regions)) {
+      for (const r of regions) {
+        this.activeRegions.set(r.identifier, r);
+      }
+      console.log('[GeofenceMonitoring] syncRegions: region set unchanged — skipping startGeofencingAsync');
+      return;
     }
 
     // Replace the full in-memory set.
@@ -286,6 +300,26 @@ class GeofenceMonitoringService {
     console.log(`[GeofenceMonitoring] updateActiveRegions: calling startGeofencingAsync with ${regions.length} region(s): [${regions.map(r => r.identifier).join(', ')}]`);
     await Location.startGeofencingAsync(GEOFENCE_TASK_NAME, regions);
     console.log('[GeofenceMonitoring] updateActiveRegions: OS registration complete');
+  }
+
+  /**
+   * Returns true if the incoming regions are identical (same IDs + same geo/notify config)
+   * to what is currently registered with the OS.
+   */
+  private regionsUnchanged(incoming: GeofenceRegion[]): boolean {
+    if (incoming.length !== this.activeRegions.size) return false;
+    for (const r of incoming) {
+      const existing = this.activeRegions.get(r.identifier);
+      if (!existing) return false;
+      if (
+        existing.latitude !== r.latitude ||
+        existing.longitude !== r.longitude ||
+        existing.radius !== r.radius ||
+        existing.notifyOnEnter !== r.notifyOnEnter ||
+        existing.notifyOnExit !== r.notifyOnExit
+      ) return false;
+    }
+    return true;
   }
 
   /**
