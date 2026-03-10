@@ -55,6 +55,9 @@ export interface AtomicObjectRow {
   linked_object_ids: string[];
   sequence_index: number;
   embedding_status: EmbeddingStatus;
+  state: 'open' | 'active' | 'resolved' | 'archived' | null;
+  state_updated_at: Date | null;
+  evolved_from_id: string | null;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;
@@ -96,6 +99,9 @@ export class AtomicObjectModel {
   linkedObjectIds: string[];
   sequenceIndex: number;
   embeddingStatus: EmbeddingStatus;
+  state: 'open' | 'active' | 'resolved' | 'archived';
+  stateUpdatedAt: Date | null;
+  evolvedFromId: string | null;
   createdAt: Date;
   updatedAt: Date;
 
@@ -156,6 +162,9 @@ export class AtomicObjectModel {
     this.linkedObjectIds = row.linked_object_ids ?? [];
     this.sequenceIndex = row.sequence_index ?? 0;
     this.embeddingStatus = row.embedding_status ?? 'pending';
+    this.state = row.state ?? 'open';
+    this.stateUpdatedAt = row.state_updated_at ?? null;
+    this.evolvedFromId = row.evolved_from_id ?? null;
     this.createdAt = row.created_at;
     this.updatedAt = row.updated_at;
   }
@@ -552,6 +561,9 @@ export class AtomicObjectModel {
       linkedObjectIds: this.linkedObjectIds,
       sequenceIndex: this.sequenceIndex,
       embeddingStatus: this.embeddingStatus,
+      state: this.state,
+      stateUpdatedAt: this.stateUpdatedAt,
+      evolvedFromId: this.evolvedFromId,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
     };

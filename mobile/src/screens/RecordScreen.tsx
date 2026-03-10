@@ -12,6 +12,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useDeepgramTranscription } from '../hooks/useDeepgramTranscription';
 import { RootStackParamList } from '../navigation/types';
 import { AppScreen, AppHeader, Colors } from '../components/ui';
+import { locationService } from '../services/locationService';
 
 type RecordScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Record'>;
 
@@ -50,7 +51,11 @@ export function RecordScreen({ navigation }: Props) {
     if (isRecording) {
       await stopRecording();
     } else if (status === 'idle' || status === 'done' || status === 'error') {
-      await startRecording();
+      const loc = await locationService.getCurrentLocation();
+      const geoPoint = loc
+        ? { latitude: loc.coords.latitude, longitude: loc.coords.longitude, accuracy: loc.coords.accuracy ?? undefined }
+        : undefined;
+      await startRecording(geoPoint);
     }
   }
 

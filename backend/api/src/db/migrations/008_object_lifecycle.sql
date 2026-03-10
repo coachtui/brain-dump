@@ -1,5 +1,7 @@
 -- Migration 008: lifecycle state, scoring, and decision outcome fields on hub.atomic_objects
 
+CREATE SCHEMA IF NOT EXISTS hub;
+
 ALTER TABLE hub.atomic_objects
   -- Lifecycle state machine
   ADD COLUMN IF NOT EXISTS state              text DEFAULT 'open'

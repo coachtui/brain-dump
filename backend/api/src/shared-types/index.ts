@@ -106,6 +106,9 @@ export interface AtomicObject {
   linkedObjectIds?: string[];
   sequenceIndex?: number;
   embeddingStatus?: EmbeddingStatus;
+  state?: 'open' | 'active' | 'resolved' | 'archived';
+  stateUpdatedAt?: Date | null;
+  evolvedFromId?: string | null;
 
   createdAt: Date;
   updatedAt: Date;

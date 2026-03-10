@@ -68,6 +68,9 @@ export interface AtomicObject {
     dateText: string | null;
     urgency: 'low' | 'medium' | 'high' | null;
   };
+  state?: 'open' | 'active' | 'resolved' | 'archived';
+  stateUpdatedAt?: Date | null;
+  evolvedFromId?: string | null;
   createdAt: Date;
   updatedAt: Date;
   vectorEmbedding?: number[];
