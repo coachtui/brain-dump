@@ -208,8 +208,7 @@ export function ObjectsScreen({ navigation }: Props) {
   const [searchText, setSearchText] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState('');
-  const [detailsExpanded, setDetailsExpanded] = useState(true);
-  const [aiDetailsExpanded, setAiDetailsExpanded] = useState(false);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [updatingState, setUpdatingState] = useState(false);
 
   // Filter state
@@ -321,8 +320,7 @@ export function ObjectsScreen({ navigation }: Props) {
   const openDetail = useCallback(async (id: string) => {
     setModalVisible(true);
     setEditMode(false);
-    setDetailsExpanded(true);
-    setAiDetailsExpanded(false);
+    setDetailsExpanded(false);
     await fetchObjectDetail(id);
   }, [fetchObjectDetail]);
 
@@ -333,8 +331,7 @@ export function ObjectsScreen({ navigation }: Props) {
     setModalVisible(false);
     setEditMode(false);
     setEditContent('');
-    setDetailsExpanded(true);
-    setAiDetailsExpanded(false);
+    setDetailsExpanded(false);
     clearDetail();
   }, [clearDetail]);
 
@@ -818,127 +815,75 @@ export function ObjectsScreen({ navigation }: Props) {
                     />
                   </View>
 
-                  <View style={styles.divider} />
-
-                  {/* Details */}
+                  {/* ··· Details toggle */}
                   <TouchableOpacity
-                    style={styles.advancedToggle}
+                    style={styles.dotsToggle}
                     onPress={() => setDetailsExpanded((v) => !v)}
-                    activeOpacity={0.7}
+                    activeOpacity={0.6}
                   >
-                    <Text style={styles.sectionLabel}>Details</Text>
                     <Ionicons
-                      name={detailsExpanded ? 'chevron-up' : 'chevron-down'}
-                      size={14}
+                      name={detailsExpanded ? 'chevron-up' : 'ellipsis-horizontal'}
+                      size={18}
                       color={Colors.textFaint}
                     />
                   </TouchableOpacity>
 
                   {detailsExpanded && (
-                    <View style={styles.detailsCard}>
-                      {selectedObject.objectType && (
-                        <DetailRow
-                          label="Type"
-                          value={TYPE_LABELS[selectedObject.objectType] || selectedObject.objectType}
-                        />
-                      )}
-                      {selectedObject.domain && selectedObject.domain !== 'misc' && (
-                        <DetailRow
-                          label="Area"
-                          value={DOMAIN_LABELS[selectedObject.domain] || selectedObject.domain}
-                        />
-                      )}
-                      <DetailRow
-                        label="Priority"
-                        value={selectedObject.metadata.urgency}
-                        valueColor={URGENCY_COLORS[selectedObject.metadata.urgency]}
-                        capitalize
-                      />
-                      <DetailRow
-                        label="Status"
-                        customValue={
-                          <StatusPicker
-                            currentState={(selectedObject as any).state ?? 'open'}
-                            onChangeState={(s) => handleStatusChange(selectedObject.id, s)}
-                            updating={updatingState}
-                          />
-                        }
-                      />
-                      <DetailRow
-                        label="Captured"
-                        value={
-                          selectedObject.source.type === 'voice' ? 'Voice recording'
-                            : selectedObject.source.type === 'text' ? 'Typed'
-                            : 'Imported'
-                        }
-                      />
-                      <DetailRow
-                        label="Created"
-                        value={formatFullDate(selectedObject.createdAt)}
-                        isLast
-                      />
-                    </View>
-                  )}
-
-                  {/* Keywords */}
-                  {selectedObject.metadata.tags.length > 0 && (
                     <>
-                      <Text style={[styles.sectionLabel, { marginTop: Spacing.xxl }]}>Keywords</Text>
-                      <View style={styles.keywordsWrap}>
-                        {selectedObject.metadata.tags.map((tag) => (
-                          <View key={tag} style={styles.keywordPill}>
-                            <Text style={styles.keywordText}>{tag}</Text>
-                          </View>
-                        ))}
+                      <View style={styles.detailsCard}>
+                        {selectedObject.objectType && (
+                          <DetailRow
+                            label="Type"
+                            value={TYPE_LABELS[selectedObject.objectType] || selectedObject.objectType}
+                          />
+                        )}
+                        {selectedObject.domain && selectedObject.domain !== 'misc' && (
+                          <DetailRow
+                            label="Area"
+                            value={DOMAIN_LABELS[selectedObject.domain] || selectedObject.domain}
+                          />
+                        )}
+                        <DetailRow
+                          label="Priority"
+                          value={selectedObject.metadata.urgency}
+                          valueColor={URGENCY_COLORS[selectedObject.metadata.urgency]}
+                          capitalize
+                        />
+                        <DetailRow
+                          label="Status"
+                          customValue={
+                            <StatusPicker
+                              currentState={(selectedObject as any).state ?? 'open'}
+                              onChangeState={(s) => handleStatusChange(selectedObject.id, s)}
+                              updating={updatingState}
+                            />
+                          }
+                        />
+                        <DetailRow
+                          label="Captured"
+                          value={
+                            selectedObject.source.type === 'voice' ? 'Voice recording'
+                              : selectedObject.source.type === 'text' ? 'Typed'
+                              : 'Imported'
+                          }
+                        />
+                        <DetailRow
+                          label="AI confidence"
+                          value={`${Math.round(selectedObject.confidence * 100)}%`}
+                        />
+                        {selectedObject.metadata.tags.length > 0 && (
+                          <DetailRow
+                            label="Keywords"
+                            value={selectedObject.metadata.tags.join(', ')}
+                          />
+                        )}
+                        <DetailRow
+                          label="Created"
+                          value={formatFullDate(selectedObject.createdAt)}
+                          isLast
+                        />
                       </View>
                     </>
-                  )}
-
-                  {/* Advanced details (collapsed) */}
-                  <TouchableOpacity
-                    style={styles.advancedToggle}
-                    onPress={() => setAiDetailsExpanded((v) => !v)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.advancedToggleText}>Advanced details</Text>
-                    <Ionicons
-                      name={aiDetailsExpanded ? 'chevron-up' : 'chevron-down'}
-                      size={14}
-                      color={Colors.textFaint}
-                    />
-                  </TouchableOpacity>
-
-                  {aiDetailsExpanded && (
-                    <View style={styles.advancedCard}>
-                      <DetailRow
-                        label="AI confidence"
-                        value={`${Math.round(selectedObject.confidence * 100)}%`}
-                      />
-                      <DetailRow
-                        label="Sentiment"
-                        value={selectedObject.metadata.sentiment}
-                        capitalize
-                      />
-                      {selectedObject.metadata.entities.length > 0 && (
-                        <View style={styles.entitiesRow}>
-                          <Text style={styles.detailRowLabel}>Mentions</Text>
-                          <View style={styles.entitiesList}>
-                            {selectedObject.metadata.entities.map((entity, i) => (
-                              <Text key={i} style={styles.entityItem}>
-                                <Text style={styles.entityTypeLabel}>{entity.type}: </Text>
-                                {entity.value}
-                              </Text>
-                            ))}
-                          </View>
-                        </View>
-                      )}
-                      <DetailRow
-                        label="Source"
-                        value={selectedObject.source.type}
-                        capitalize
-                        isLast
-                      />
-                    </View>
                   )}
 
                   <View style={{ height: 48 }} />
@@ -1476,6 +1421,10 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: Colors.border,
     marginBottom: Spacing.xxl,
+  },
+  dotsToggle: {
+    alignItems: 'center',
+    paddingVertical: Spacing.lg,
   },
 
   // Details section
