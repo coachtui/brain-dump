@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import PublicNav from '@/components/PublicNav';
 import Footer from '@/components/Footer';
-import HeroIllustration from '@/components/HeroIllustration';
 
 // ── Inline SVG icons ──────────────────────────────────────────────────────
 
@@ -229,11 +228,16 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Illustration column */}
+            {/* Hero video */}
             <div className="flex items-center justify-center order-1 lg:order-2">
-              <div className="w-[260px] sm:w-[320px] lg:w-[480px] xl:w-[520px]">
-                <HeroIllustration />
-              </div>
+              <video
+                src="/offload-hero-wave.mp4"
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="w-[260px] sm:w-[320px] lg:w-[480px] xl:w-[520px] rounded-2xl"
+              />
             </div>
 
           </div>
