@@ -178,3 +178,66 @@ export async function resolvePlaceName(
     return null;
   }
 }
+
+/**
+ * Resolve a place name to up to 3 geographic candidates.
+ * Used when creating multiple geofences for the same named place (e.g. chain stores).
+ */
+export async function resolvePlaceNameMulti(
+  placeName: string,
+  userLocation?: { lat: number; lng: number }
+): Promise<ResolvedPlace[]> {
+  try {
+    const params = new URLSearchParams({
+      q: placeName,
+      format: 'json',
+      limit: '3',
+      addressdetails: '1',
+    });
+
+    if (userLocation) {
+      const delta = 0.2;
+      params.set(
+        'viewbox',
+        `${userLocation.lng - delta},${userLocation.lat + delta},${userLocation.lng + delta},${userLocation.lat - delta}`
+      );
+      params.set('bounded', '0');
+    }
+
+    const url = `${NOMINATIM_SEARCH}?${params.toString()}`;
+    console.log(`[PlaceResolution] Multi-resolving "${placeName}" via Nominatim...`);
+
+    const response = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!response.ok) {
+      console.warn(`[PlaceResolution] Nominatim responded with ${response.status}`);
+      return [];
+    }
+
+    const results = (await response.json()) as NominatimResult[];
+    if (!results || results.length === 0) {
+      console.log(`[PlaceResolution] No results for "${placeName}"`);
+      return [];
+    }
+
+    const resolved = results.map(r => ({
+      rawName: placeName,
+      normalizedName: buildNormalizedName(r),
+      providerPlaceId: `osm:${r.place_id}`,
+      lat: parseFloat(r.lat),
+      lng: parseFloat(r.lon),
+      radiusMeters: pickRadius(r),
+      category: r.type || r.class || 'place',
+      confidence: computeConfidence(r, userLocation?.lat, userLocation?.lng),
+    }));
+
+    console.log(`[PlaceResolution] Multi-resolved "${placeName}" → ${resolved.length} result(s): ${resolved.map(r => r.normalizedName).join(', ')}`);
+    return resolved;
+  } catch (error) {
+    console.warn(`[PlaceResolution] Error multi-resolving "${placeName}":`, error);
+    return [];
+  }
+}

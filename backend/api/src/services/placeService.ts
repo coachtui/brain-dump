@@ -8,7 +8,7 @@
 import { PlaceModel } from '../models/Place';
 import { GeofenceModel } from '../models/Geofence';
 import { AtomicObjectModel } from '../models/AtomicObject';
-import { resolvePlaceName } from './placeResolutionService';
+import { resolvePlaceNameMulti } from './placeResolutionService';
 import type { AtomicObject } from '@shared/types';
 
 // Maximum number of inferred geofences per user (leaves room for manual ones within OS 20-limit)
@@ -16,6 +16,9 @@ const MAX_INFERRED_GEOFENCES = 15;
 
 // Minimum confidence to auto-create a geofence
 const GEOFENCE_CONFIDENCE_THRESHOLD = 0.6;
+
+// Fixed radius for all inferred geofences (metres)
+const INFERRED_RADIUS_METERS = 100;
 
 // Cooldown duration in milliseconds (2 hours)
 const COOLDOWN_MS = 2 * 60 * 60 * 1000;
@@ -61,57 +64,59 @@ async function resolveAndLinkPlace(
     return;
   }
 
-  // ─── 2. Geocode via OSM Nominatim ─────────────────────────────────────────
+  // ─── 2. Geocode via OSM Nominatim (up to 3 candidates) ───────────────────
   const userLatLng = userLocation
     ? { lat: userLocation.latitude, lng: userLocation.longitude }
     : undefined;
 
-  const resolved = await resolvePlaceName(normalizedQuery, userLatLng);
+  const resolvedList = await resolvePlaceNameMulti(normalizedQuery, userLatLng);
 
-  if (!resolved) {
+  if (resolvedList.length === 0) {
     console.log(`[placeService] Could not resolve "${normalizedQuery}" — skipping`);
     return;
   }
 
-  // ─── 3. Proximity de-dup (same place within 300m already exists?) ──────────
-  const nearby = await PlaceModel.findNearby(userId, resolved.lat, resolved.lng, 300);
-  const sameNameNearby = nearby.find(
-    p => p.normalizedName.toLowerCase().includes(resolved.normalizedName.toLowerCase()) ||
-         resolved.normalizedName.toLowerCase().includes(p.normalizedName.toLowerCase())
-  );
+  for (const resolved of resolvedList) {
+    // ─── 3. Proximity de-dup (same place within 300m already exists?) ────────
+    const nearby = await PlaceModel.findNearby(userId, resolved.lat, resolved.lng, 300);
+    const sameNameNearby = nearby.find(
+      p => p.normalizedName.toLowerCase().includes(resolved.normalizedName.toLowerCase()) ||
+           resolved.normalizedName.toLowerCase().includes(p.normalizedName.toLowerCase())
+    );
 
-  if (sameNameNearby) {
-    console.log(`[placeService] Deduped to nearby place: ${sameNameNearby.id} (${sameNameNearby.normalizedName})`);
-    await PlaceModel.linkObject(sameNameNearby.id, objectId, 'mentioned_in_note');
-    return;
-  }
+    if (sameNameNearby) {
+      console.log(`[placeService] Deduped to nearby place: ${sameNameNearby.id} (${sameNameNearby.normalizedName})`);
+      await PlaceModel.linkObject(sameNameNearby.id, objectId, 'mentioned_in_note');
+      continue;
+    }
 
-  // ─── 4. Create new place record ────────────────────────────────────────────
-  const userConfirmed = resolved.confidence >= GEOFENCE_CONFIDENCE_THRESHOLD;
-  const place = await PlaceModel.create({
-    userId,
-    rawName: resolved.rawName,
-    normalizedName: resolved.normalizedName,
-    providerPlaceId: resolved.providerPlaceId,
-    lat: resolved.lat,
-    lng: resolved.lng,
-    radiusMeters: resolved.radiusMeters,
-    category: resolved.category,
-    confidence: resolved.confidence,
-    userConfirmed,
-    createdBy: 'inferred',
-  });
+    // ─── 4. Create new place record ──────────────────────────────────────────
+    const userConfirmed = resolved.confidence >= GEOFENCE_CONFIDENCE_THRESHOLD;
+    const place = await PlaceModel.create({
+      userId,
+      rawName: resolved.rawName,
+      normalizedName: resolved.normalizedName,
+      providerPlaceId: resolved.providerPlaceId,
+      lat: resolved.lat,
+      lng: resolved.lng,
+      radiusMeters: INFERRED_RADIUS_METERS,
+      category: resolved.category,
+      confidence: resolved.confidence,
+      userConfirmed,
+      createdBy: 'inferred',
+    });
 
-  console.log(`[placeService] Created place ${place.id} "${place.normalizedName}" (confidence: ${place.confidence})`);
+    console.log(`[placeService] Created place ${place.id} "${place.normalizedName}" (confidence: ${place.confidence})`);
 
-  // ─── 5. Link object to place ───────────────────────────────────────────────
-  await PlaceModel.linkObject(place.id, objectId, 'mentioned_in_note');
+    // ─── 5. Link object to place ─────────────────────────────────────────────
+    await PlaceModel.linkObject(place.id, objectId, 'mentioned_in_note');
 
-  // ─── 6. Optionally register inferred geofence ─────────────────────────────
-  if (userConfirmed) {
-    await maybeCreateInferredGeofence(userId, place);
-  } else {
-    console.log(`[placeService] Confidence too low (${resolved.confidence}) — skipping geofence for "${resolved.normalizedName}"`);
+    // ─── 6. Optionally register inferred geofence ────────────────────────────
+    if (userConfirmed) {
+      await maybeCreateInferredGeofence(userId, place);
+    } else {
+      console.log(`[placeService] Confidence too low (${resolved.confidence}) — skipping geofence for "${resolved.normalizedName}"`);
+    }
   }
 }
 
