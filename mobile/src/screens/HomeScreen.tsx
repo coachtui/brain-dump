@@ -76,6 +76,7 @@ export function HomeScreen({ navigation }: Props) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isSearchMode = searchQuery.trim().length > 0;
+  const [forYouExpanded, setForYouExpanded] = useState(true);
   const [recentExpanded, setRecentExpanded] = useState(true);
 
   // Fetch recent captures on mount
@@ -234,8 +235,19 @@ export function HomeScreen({ navigation }: Props) {
           {/* For you right now */}
           {forYouItems.length > 0 ? (
             <View style={styles.forYouSection}>
-              <Text style={styles.forYouTitle}>For you right now</Text>
-              {forYouItems.map((obj) => {
+              <TouchableOpacity
+                style={styles.forYouSectionHeader}
+                onPress={() => setForYouExpanded((v) => !v)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.forYouTitle}>For you right now</Text>
+                <Ionicons
+                  name={forYouExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={15}
+                  color="#9CA3AF"
+                />
+              </TouchableOpacity>
+              {forYouExpanded && forYouItems.map((obj) => {
                 const badge = obj.objectType ?? obj.domain ?? null;
                 return (
                   <TouchableOpacity
@@ -456,13 +468,18 @@ const styles = StyleSheet.create({
   forYouSection: {
     marginBottom: 32,
   },
+  forYouSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   forYouTitle: {
     fontSize: 13,
     fontWeight: '600',
     color: '#6B7280',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
-    marginBottom: 12,
   },
   forYouRow: {
     flexDirection: 'row',
