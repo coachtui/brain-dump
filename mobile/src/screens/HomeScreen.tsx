@@ -76,8 +76,8 @@ export function HomeScreen({ navigation }: Props) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isSearchMode = searchQuery.trim().length > 0;
-  const [forYouExpanded, setForYouExpanded] = useState(true);
-  const [recentExpanded, setRecentExpanded] = useState(true);
+  const [forYouExpanded, setForYouExpanded] = useState(false);
+  const [recentExpanded, setRecentExpanded] = useState(false);
 
   // Fetch recent captures on mount
   useEffect(() => {
@@ -232,6 +232,24 @@ export function HomeScreen({ navigation }: Props) {
             <Text style={styles.micLabel}>Capture a thought</Text>
           </View>
 
+          {/* Nav cards — 2 × 2 grid */}
+          <View style={styles.grid}>
+            {NAV_ITEMS.map((item) => (
+              <TouchableOpacity
+                key={item.route}
+                style={styles.card}
+                onPress={() => navigation.navigate(item.route as any)}
+                activeOpacity={0.72}
+              >
+                <View style={[styles.iconWrap, { backgroundColor: item.iconBg }]}>
+                  <Ionicons name={item.icon} size={22} color={item.iconColor} />
+                </View>
+                <Text style={styles.cardLabel}>{item.label}</Text>
+                <Text style={styles.cardDesc}>{item.description}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
           {/* For you right now */}
           {forYouItems.length > 0 ? (
             <View style={styles.forYouSection}>
@@ -280,24 +298,6 @@ export function HomeScreen({ navigation }: Props) {
               })}
             </View>
           ) : null}
-
-          {/* Nav cards — 2 × 2 grid */}
-          <View style={styles.grid}>
-            {NAV_ITEMS.map((item) => (
-              <TouchableOpacity
-                key={item.route}
-                style={styles.card}
-                onPress={() => navigation.navigate(item.route as any)}
-                activeOpacity={0.72}
-              >
-                <View style={[styles.iconWrap, { backgroundColor: item.iconBg }]}>
-                  <Ionicons name={item.icon} size={22} color={item.iconColor} />
-                </View>
-                <Text style={styles.cardLabel}>{item.label}</Text>
-                <Text style={styles.cardDesc}>{item.description}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
 
           {/* Recent captures */}
           <View style={styles.recentSection}>
