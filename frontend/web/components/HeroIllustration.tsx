@@ -1,124 +1,115 @@
 'use client'
 
 import { motion, useReducedMotion } from 'framer-motion'
-import type { TargetAndTransition, Transition } from 'framer-motion'
+import type { Transition } from 'framer-motion'
 import type { CSSProperties } from 'react'
 
-// ── Canvas ─────────────────────────────────────────────────────────────────
+// ── Canvas ──────────────────────────────────────────────────────────────────
 const VW = 520
 const VH = 290
 
-// ── Wave ribbon (5 layered sine paths, entering from left) ─────────────────
-// Each path ends near x≈172 where the left cluster begins.
-const WAVES = [
-  // center — most opaque, heaviest stroke
-  {
-    d: 'M 0,145 C 20,122 40,168 60,145 C 80,122 100,168 120,145 C 140,122 160,168 172,148',
-    opacity: 0.85,
-    strokeWidth: 1.3,
-  },
-  // one above center
-  {
-    d: 'M 4,130 C 24,108 44,152 64,130 C 84,108 104,152 124,130 C 144,108 160,128 170,136',
-    opacity: 0.6,
-    strokeWidth: 1.0,
-  },
-  // one below center
-  {
-    d: 'M 4,160 C 24,138 44,182 64,160 C 84,138 104,182 124,160 C 144,138 160,164 170,155',
-    opacity: 0.6,
-    strokeWidth: 1.0,
-  },
-  // outer above
-  {
-    d: 'M 10,114 C 30,93 50,135 70,114 C 90,93 110,135 132,114',
-    opacity: 0.35,
-    strokeWidth: 0.8,
-  },
-  // outer below
-  {
-    d: 'M 10,176 C 30,155 50,197 70,176 C 90,155 110,197 132,176',
-    opacity: 0.35,
-    strokeWidth: 0.8,
-  },
+// ── Wave ribbon field ───────────────────────────────────────────────────────
+// Each ribbon is a thick-stroke sine path. Overlapping at low opacity creates
+// the layered translucent ribbon appearance from the reference artwork.
+//
+// 2 oscillation cycles: x 0 → 210, period = 105
+// Bezier C-points at ¼ and ¾ period for natural sine approximation.
+function wavePath(cy: number, amp: number): string {
+  return [
+    `M 0,${cy}`,
+    `C 26,${cy - amp} 79,${cy + amp} 105,${cy}`,
+    `C 131,${cy - amp} 184,${cy + amp} 210,${cy}`,
+  ].join(' ')
+}
+
+type WaveDef = {
+  cy: number   // center y
+  amp: number  // oscillation amplitude
+  sw: number   // strokeWidth — creates ribbon thickness
+  op: number   // opacity — layers stack to create depth
+  drift: [number, number]  // idle y keyframe targets
+  dd: number   // drift duration (seconds)
+}
+
+// Rendered back-to-front: outer wisps first, thick core last
+const WAVES: WaveDef[] = [
+  { cy: 98,  amp: 11, sw: 2,  op: 0.055, drift: [-2.5,  2.5], dd: 11.2 },
+  { cy: 192, amp: 11, sw: 2,  op: 0.055, drift: [ 2.5, -2.5], dd: 11.8 },
+  { cy: 114, amp: 17, sw: 5,  op: 0.09,  drift: [-3.0,  3.0], dd: 9.5  },
+  { cy: 176, amp: 17, sw: 5,  op: 0.09,  drift: [ 3.0, -3.0], dd: 10.1 },
+  { cy: 130, amp: 21, sw: 9,  op: 0.12,  drift: [-3.5,  4.0], dd: 8.3  },
+  { cy: 160, amp: 21, sw: 9,  op: 0.12,  drift: [ 4.0, -3.5], dd: 8.8  },
+  { cy: 145, amp: 23, sw: 18, op: 0.10,  drift: [-2.5,  4.0], dd: 7.5  },
+  { cy: 145, amp: 18, sw: 24, op: 0.08,  drift: [ 4.0, -2.5], dd: 7.9  },
 ]
 
-// ── Left cluster — sparse, organic (signal arrives → nodes appear) ──────────
+// ── Node/edge geometry ──────────────────────────────────────────────────────
 type Pt = { x: number; y: number }
+type NodeDef = Pt & { r: number; accent?: true }
 
-const L_NODES: Array<Pt & { r: number }> = [
-  { x: 205, y: 118, r: 5 },
-  { x: 190, y: 155, r: 7 },  // entry — largest on left edge
-  { x: 242, y: 103, r: 4 },
-  { x: 262, y: 148, r: 9 },  // center hub of left cluster
-  { x: 300, y: 126, r: 5 },
-  { x: 297, y: 174, r: 5 },
-  { x: 238, y: 192, r: 4 },
+// Left cluster — sparse, organic (signal arrives, nodes emerge)
+// One large central hub surrounded by smaller, irregularly placed nodes.
+const L_NODES: NodeDef[] = [
+  { x: 210, y: 148, r: 6  },   // entry — closest to wave terminus
+  { x: 230, y: 114, r: 4  },
+  { x: 248, y:  97, r: 5  },
+  { x: 264, y: 146, r: 12 },   // largest — visual anchor of left cluster
+  { x: 296, y: 112, r: 5  },
+  { x: 304, y: 163, r: 7  },
+  { x: 272, y: 192, r: 4  },
 ]
 
-// Pairs of L_NODES indices
-const L_EDGE_IDX = [
-  [0, 1], [0, 2], [1, 3], [2, 3], [3, 4], [3, 5], [3, 6], [5, 6],
+const L_EDGES: [number, number][] = [
+  [0, 3], [1, 2], [1, 3], [2, 4], [3, 4], [3, 5], [3, 6], [5, 6],
 ]
 
-// ── Right cluster — dense, structured (organised memory) ───────────────────
-const R_NODES: Array<Pt & { r: number; hub?: boolean }> = [
-  { x: 345, y: 100, r: 5 },
-  { x: 387, y: 88,  r: 6 },
-  { x: 430, y: 97,  r: 4 },
-  { x: 470, y: 90,  r: 7 },
-  { x: 333, y: 147, r: 6 },
-  { x: 376, y: 150, r: 9, hub: true },  // primary hub — indigo
-  { x: 420, y: 144, r: 5 },
-  { x: 463, y: 149, r: 6 },
-  { x: 350, y: 200, r: 5 },
-  { x: 392, y: 208, r: 5 },
-  { x: 437, y: 199, r: 7 },
-]
-
-const R_EDGE_IDX = [
+// Right cluster — dense, structured (organised memory network)
+// Three rough rows; noticeable size variance; one indigo accent hub.
+const R_NODES: NodeDef[] = [
   // top row
-  [0, 1], [1, 2], [2, 3],
+  { x: 338, y: 100, r: 5        },
+  { x: 380, y:  85, r: 8        },   // large
+  { x: 422, y:  96, r: 4        },
+  { x: 464, y:  87, r: 9        },   // large
   // middle row
-  [4, 5], [5, 6], [6, 7],
+  { x: 332, y: 150, r: 6        },
+  { x: 374, y: 147, r: 11, accent: true },  // brand accent — largest
+  { x: 414, y: 143, r: 5        },
+  { x: 456, y: 150, r: 8        },   // large
   // bottom row
-  [8, 9], [9, 10],
-  // top → middle
-  [0, 4], [1, 5], [2, 6], [3, 7],
-  // middle → bottom
-  [4, 8], [5, 9], [6, 10],
+  { x: 348, y: 200, r: 5        },
+  { x: 390, y: 207, r: 6        },
+  { x: 432, y: 199, r: 10       },   // large
+  { x: 470, y: 205, r: 4        },
 ]
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-function linePath(a: Pt, b: Pt) {
-  return `M ${a.x},${a.y} L ${b.x},${b.y}`
-}
+// Primary structural edges — drawn first, full weight
+const R_PRIMARY: [number, number][] = [
+  [0, 1], [1, 2], [2, 3],             // top row
+  [4, 5], [5, 6], [6, 7],             // middle row
+  [8, 9], [9, 10], [10, 11],          // bottom row
+  [0, 4], [1, 5], [2, 6], [3, 7],     // top → middle
+  [4, 8], [5, 9], [6, 10], [7, 11],   // middle → bottom
+]
 
-function originAt(x: number, y: number): { style: CSSProperties } {
-  return { style: { transformOrigin: `${x}px ${y}px` } }
-}
+// Secondary diagonal web — drawn last, thinner, lower opacity
+const R_SECONDARY: [number, number][] = [
+  [1, 6], [0, 5], [2, 7], [5, 10], [6, 9],
+]
 
-// ── Transition factories ───────────────────────────────────────────────────
-const pathTx = (delay: number) => ({
-  duration: 0.85,
-  ease: 'easeInOut' as const,
-  delay,
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const line = (a: Pt, b: Pt) => `M ${a.x},${a.y} L ${b.x},${b.y}`
+const originAt = (x: number, y: number): { style: CSSProperties } => ({
+  style: { transformOrigin: `${x}px ${y}px` },
 })
 
-const nodeTx = (delay: number) => ({
-  duration: 0.55,
-  ease: 'easeOut' as const,
-  delay,
-})
-
-// ── Component ──────────────────────────────────────────────────────────────
+// ── Component ───────────────────────────────────────────────────────────────
 export default function HeroIllustration() {
-  const reducedMotion = useReducedMotion()
-  const skip = reducedMotion ?? false
+  const prefersReduced = useReducedMotion()
+  const skip = prefersReduced ?? false
 
-  // Wrap helpers — skip=true → instant (no tween), skip=false → animated
-  const wInit = (vals: TargetAndTransition): TargetAndTransition | false => (skip ? false : vals)
-  const wTx = (tx: Transition): Transition => (skip ? { duration: 0 } : tx)
+  // Returns a Transition that's instant when skip=true
+  const tx = (t: Transition): Transition => (skip ? { duration: 0 } : t)
 
   return (
     <svg
@@ -129,93 +120,138 @@ export default function HeroIllustration() {
       role="presentation"
       className="w-full select-none"
     >
-      {/* ── Wave ribbon ────────────────────────────────────────────────── */}
+      {/* ── Layer 1: Wave field ─────────────────────────────────────────
+          Each ribbon draws in (pathLength) then enters independent drift.
+          split transition: { pathLength: {...}, y: {...} }
+      ──────────────────────────────────────────────────────────────── */}
       {WAVES.map((w, i) => (
         <motion.path
-          key={`wave-${i}`}
-          d={w.d}
-          stroke="#334155"
-          strokeWidth={w.strokeWidth}
+          key={`w${i}`}
+          d={wavePath(w.cy, w.amp)}
+          stroke="#0f172a"
+          strokeWidth={w.sw}
           strokeLinecap="round"
-          initial={wInit({ pathLength: 0, opacity: 0 })}
-          animate={{ pathLength: 1, opacity: w.opacity }}
-          transition={wTx({ duration: 1.3, ease: 'easeInOut', delay: i * 0.08 })}
+          initial={skip ? false : { pathLength: 0, opacity: 0 }}
+          animate={{
+            pathLength: 1,
+            opacity: w.op,
+            y: skip ? 0 : [0, w.drift[0], 0, w.drift[1], 0],
+          }}
+          transition={{
+            pathLength: tx({ duration: 1.6, ease: 'easeInOut', delay: i * 0.06 }),
+            opacity:    tx({ duration: 1.4, ease: 'easeInOut', delay: i * 0.06 }),
+            y: skip ? { duration: 0 } : {
+              duration: w.dd,
+              repeat: Infinity,
+              ease: 'easeInOut',
+              delay: 2.4 + i * 0.18,
+            },
+          }}
         />
       ))}
 
-      {/* ── Network (floats after intro) ────────────────────────────── */}
+      {/* ── Layer 2: Left cluster (emergence) ──────────────────────────
+          Group breathes subtly after intro completes.
+      ──────────────────────────────────────────────────────────────── */}
       <motion.g
-        animate={skip ? undefined : { y: [0, -4, 0, 4, 0] }}
-        transition={{ delay: 3.5, duration: 7, repeat: Infinity, ease: 'easeInOut' }}
+        animate={skip ? undefined : { y: [0, -2.5, 0, 2.5, 0] }}
+        transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut', delay: 4.0 }}
       >
-        {/* ── Left cluster connections ──────────────────────────────── */}
-        {L_EDGE_IDX.map(([ai, bi], i) => (
+        {L_EDGES.map(([ai, bi], i) => (
           <motion.path
-            key={`le-${i}`}
-            d={linePath(L_NODES[ai], L_NODES[bi])}
-            stroke="#94a3b8"
+            key={`le${i}`}
+            d={line(L_NODES[ai], L_NODES[bi])}
+            stroke="#64748b"
             strokeWidth="0.9"
             strokeLinecap="round"
-            initial={wInit({ pathLength: 0, opacity: 0 })}
-            animate={{ pathLength: 1, opacity: 0.55 }}
-            transition={wTx(pathTx(1.45 + i * 0.1))}
+            initial={skip ? false : { pathLength: 0, opacity: 0 }}
+            animate={{ pathLength: 1, opacity: 0.48 }}
+            transition={tx({ duration: 0.85, ease: 'easeInOut', delay: 1.65 + i * 0.09 })}
           />
         ))}
 
-        {/* ── Left cluster nodes ────────────────────────────────────── */}
         {L_NODES.map((n, i) => (
           <motion.circle
-            key={`ln-${i}`}
+            key={`ln${i}`}
             cx={n.x}
             cy={n.y}
             r={n.r}
-            fill="#475569"
-            initial={wInit({ opacity: 0, scale: 0.4 })}
+            fill="#1e293b"
+            initial={skip ? false : { opacity: 0, scale: 0.25 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={wTx(nodeTx(1.2 + i * 0.08))}
+            transition={tx({ duration: 0.55, ease: 'easeOut', delay: 1.4 + i * 0.09 })}
             {...originAt(n.x, n.y)}
           />
         ))}
+      </motion.g>
 
-        {/* ── Right cluster connections ─────────────────────────────── */}
-        {R_EDGE_IDX.map(([ai, bi], i) => (
+      {/* ── Layer 3: Right mesh network ─────────────────────────────────
+          Primary edges → nodes → secondary web → accent pulse.
+          Group breathes on a slightly different phase to left cluster.
+      ──────────────────────────────────────────────────────────────── */}
+      <motion.g
+        animate={skip ? undefined : { y: [0, 3, 0, -3, 0] }}
+        transition={{ duration: 10.5, repeat: Infinity, ease: 'easeInOut', delay: 4.5 }}
+      >
+        {/* Primary structural edges */}
+        {R_PRIMARY.map(([ai, bi], i) => (
           <motion.path
-            key={`re-${i}`}
-            d={linePath(R_NODES[ai], R_NODES[bi])}
-            stroke="#94a3b8"
+            key={`rp${i}`}
+            d={line(R_NODES[ai], R_NODES[bi])}
+            stroke="#64748b"
             strokeWidth="0.9"
             strokeLinecap="round"
-            initial={wInit({ pathLength: 0, opacity: 0 })}
-            animate={{ pathLength: 1, opacity: 0.55 }}
-            transition={wTx(pathTx(2.4 + i * 0.09))}
+            initial={skip ? false : { pathLength: 0, opacity: 0 }}
+            animate={{ pathLength: 1, opacity: 0.48 }}
+            transition={tx({ duration: 0.8, ease: 'easeInOut', delay: 2.4 + i * 0.07 })}
           />
         ))}
 
-        {/* ── Right cluster nodes ───────────────────────────────────── */}
+        {/* Secondary diagonal web */}
+        {R_SECONDARY.map(([ai, bi], i) => (
+          <motion.path
+            key={`rs${i}`}
+            d={line(R_NODES[ai], R_NODES[bi])}
+            stroke="#94a3b8"
+            strokeWidth="0.55"
+            strokeLinecap="round"
+            initial={skip ? false : { pathLength: 0, opacity: 0 }}
+            animate={{ pathLength: 1, opacity: 0.28 }}
+            transition={tx({ duration: 0.75, ease: 'easeInOut', delay: 3.6 + i * 0.1 })}
+          />
+        ))}
+
+        {/* Nodes — render after edges so they sit on top */}
         {R_NODES.map((n, i) => (
-          <g key={`rn-${i}`}>
-            {/* Hub ring */}
-            {n.hub && (
+          <g key={`rn${i}`}>
+            {/* Accent pulse ring — ripples outward every ~7s */}
+            {n.accent && !skip && (
               <motion.circle
                 cx={n.x}
                 cy={n.y}
-                r={n.r + 8}
-                stroke="#a5b4fc"
-                strokeWidth="1"
-                initial={wInit({ opacity: 0, scale: 0.5 })}
-                animate={{ opacity: 0.35, scale: 1 }}
-                transition={wTx(nodeTx(2.15 + i * 0.08))}
+                r={n.r + 10}
+                stroke="#6366f1"
+                strokeWidth="1.5"
+                animate={{ scale: [1, 1.65], opacity: [0.5, 0] }}
+                transition={{
+                  duration: 2.2,
+                  repeat: Infinity,
+                  repeatDelay: 5,
+                  delay: 4.8,
+                  ease: 'easeOut',
+                }}
                 {...originAt(n.x, n.y)}
               />
             )}
+            {/* Node fill */}
             <motion.circle
               cx={n.x}
               cy={n.y}
               r={n.r}
-              fill={n.hub ? '#4f46e5' : '#475569'}
-              initial={wInit({ opacity: 0, scale: 0.4 })}
+              fill={n.accent ? '#4f46e5' : '#1e293b'}
+              initial={skip ? false : { opacity: 0, scale: 0.25 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={wTx(nodeTx(2.2 + i * 0.08))}
+              transition={tx({ duration: 0.55, ease: 'easeOut', delay: 2.55 + i * 0.07 })}
               {...originAt(n.x, n.y)}
             />
           </g>
