@@ -506,7 +506,7 @@ class ApiService {
       altitude?: number;
     };
     metadata?: Record<string, any>;
-  }): Promise<{ sessionId: string; objectIds: string[]; objectCount: number }> {
+  }): Promise<{ sessionId: string; objectIds: string[]; objectCount: number; hasGeofenceCandidates?: boolean }> {
     return this.request('/api/v1/voice/save-transcript', {
       method: 'POST',
       body: JSON.stringify(data),

@@ -17,6 +17,19 @@ const router = Router();
 // All voice routes require authentication
 router.use(authenticate);
 
+// ─── Deterministic arrival-trigger detection ──────────────────────────────────
+// These patterns reliably indicate "remind me when I arrive at X" intent.
+// Applied as a fallback when the ML parser does not set geofence_candidate=true.
+const ARRIVAL_PATTERNS = [
+  /when\s+(?:i\s+)?(?:get|arrive|am|reach|go)\s+(?:to|at)\b/i,
+  /remind(?:er)?\s+(?:me\s+)?.+\bat\b\s+\w/i,
+  /at\s+(?:the\s+)?(?:costco|walmart|target|longs|safeway|home\s+depot|lowes|cvs|walgreens|sam['']?s|whole\s+foods|trader\s+joe['']?s|aldi|costco|ross|tj\s+maxx|marshalls|kohls?)\b/i,
+];
+
+function textHasArrivalTrigger(text: string): boolean {
+  return ARRIVAL_PATTERNS.some(p => p.test(text));
+}
+
 // Validation schemas
 const saveTranscriptSchema = z.object({
   transcript: z.string().min(1, 'Transcript is required'),
@@ -112,6 +125,7 @@ router.post('/save-transcript', async (req: Request, res: Response) => {
 
     // Parse transcript and create atomic objects
     const objectIds: string[] = [];
+    let hasGeofenceCandidates = false;
 
     try {
       if (transcript.trim()) {
@@ -136,8 +150,20 @@ router.post('/save-transcript', async (req: Request, res: Response) => {
               confidence: 1.0,
             }));
 
+            // Deterministic fallback: if ML didn't flag geofence_candidate but the text
+            // contains clear arrival-trigger patterns ("when I get to Costco"), force it on.
+            const textContent = parsedObject.cleanedText || parsedObject.rawText || '';
+            const deterministicGeofenceCandidate = textHasArrivalTrigger(textContent);
+
+            if (deterministicGeofenceCandidate && !parsedObject.locationHints?.geofenceCandidate) {
+              console.log(`[Voice] Deterministic arrival trigger detected in: "${textContent.slice(0, 80)}"`);
+            }
+
+            const effectiveGeofenceCandidate =
+              parsedObject.locationHints?.geofenceCandidate || deterministicGeofenceCandidate;
+
             const object = await createObject(userId, {
-              content: parsedObject.cleanedText || parsedObject.rawText,
+              content: textContent,
               category: [],
               source: {
                 type: 'voice',
@@ -162,15 +188,14 @@ router.post('/save-transcript', async (req: Request, res: Response) => {
             });
             objectIds.push(object.id);
 
-            // Fire-and-forget place resolution for actionable objects mentioning places
-            if (
-              parsedObject.locationHints?.geofenceCandidate &&
-              parsedObject.locationHints?.places?.length > 0
-            ) {
+            // Fire-and-forget place resolution for objects mentioning places
+            const places = parsedObject.locationHints?.places;
+            if (effectiveGeofenceCandidate && places && places.length > 0) {
+              hasGeofenceCandidates = true;
               resolveObjectPlaces(
                 userId,
                 object.id,
-                parsedObject.locationHints.places,
+                places,
                 geoLocation
               ).catch(err =>
                 console.warn('[Voice] Place resolution failed silently for object', object.id, ':', err)
@@ -219,10 +244,14 @@ router.post('/save-transcript', async (req: Request, res: Response) => {
       throw processingError;
     }
 
+    // hasGeofenceCandidates signals to the client that place resolution is running
+    // asynchronously server-side and geofences may be created shortly. The client
+    // should re-fetch geofences after a brief delay to pick up new OS registrations.
     res.json({
       sessionId: session.id,
       objectIds,
       objectCount: objectIds.length,
+      hasGeofenceCandidates: hasGeofenceCandidates ?? false,
     });
   } catch (error) {
     console.error('[Voice] save-transcript error:', error);

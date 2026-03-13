@@ -14,14 +14,38 @@ import type { AtomicObject } from '@shared/types';
 // Maximum number of inferred geofences per user (leaves room for manual ones within OS 20-limit)
 const MAX_INFERRED_GEOFENCES = 15;
 
-// Minimum confidence to auto-create a geofence
-const GEOFENCE_CONFIDENCE_THRESHOLD = 0.6;
+// Minimum confidence to auto-create a geofence.
+// Lowered from 0.6 → 0.45: Nominatim returns reliable matches for named stores (Costco,
+// Longs, etc.) but their OSM importance scores are low (~0.3–0.4), yielding confidence
+// ~0.38–0.50 even with the category boost. 0.45 passes these known-good commercial matches
+// while still filtering out vague/ambiguous place names.
+const GEOFENCE_CONFIDENCE_THRESHOLD = 0.45;
 
 // Fixed radius for all inferred geofences (metres)
 const INFERRED_RADIUS_METERS = 100;
 
 // Cooldown duration in milliseconds (2 hours)
 const COOLDOWN_MS = 2 * 60 * 60 * 1000;
+
+// ─── Place resolution pipeline ───────────────────────────────────────────────
+
+// ─── Lifecycle logging ────────────────────────────────────────────────────────
+
+export type ReminderLifecycleEvent =
+  | 'REMINDER_CANDIDATE_DETECTED'
+  | 'PLACE_RESOLVED'
+  | 'PLACE_DEDUPED'
+  | 'PLACE_UNRESOLVABLE'
+  | 'GEOFENCE_CREATED'
+  | 'GEOFENCE_SKIPPED_LOW_CONFIDENCE'
+  | 'GEOFENCE_LIMIT_REACHED';
+
+function logLifecycle(
+  event: ReminderLifecycleEvent,
+  details: Record<string, unknown>
+): void {
+  console.log(`[ReminderLifecycle] ${event}`, JSON.stringify(details));
+}
 
 // ─── Place resolution pipeline ───────────────────────────────────────────────
 
@@ -35,6 +59,7 @@ export async function resolveObjectPlaces(
   placeNames: string[],
   userLocation?: { latitude: number; longitude: number }
 ): Promise<void> {
+  logLifecycle('REMINDER_CANDIDATE_DETECTED', { objectId, placeNames });
   for (const rawName of placeNames) {
     try {
       await resolveAndLinkPlace(userId, objectId, rawName, userLocation);
@@ -60,6 +85,7 @@ async function resolveAndLinkPlace(
   if (nameMatches.length > 0) {
     const existing = nameMatches[0];
     console.log(`[placeService] Found existing place by name: ${existing.id} (${existing.normalizedName})`);
+    logLifecycle('PLACE_DEDUPED', { objectId, placeId: existing.id, name: existing.normalizedName, reason: 'name_match' });
     await PlaceModel.linkObject(existing.id, objectId, 'mentioned_in_note');
     return;
   }
@@ -73,6 +99,7 @@ async function resolveAndLinkPlace(
 
   if (resolvedList.length === 0) {
     console.log(`[placeService] Could not resolve "${normalizedQuery}" — skipping`);
+    logLifecycle('PLACE_UNRESOLVABLE', { objectId, query: normalizedQuery, reason: 'nominatim_no_results' });
     return;
   }
 
@@ -86,6 +113,7 @@ async function resolveAndLinkPlace(
 
     if (sameNameNearby) {
       console.log(`[placeService] Deduped to nearby place: ${sameNameNearby.id} (${sameNameNearby.normalizedName})`);
+      logLifecycle('PLACE_DEDUPED', { objectId, placeId: sameNameNearby.id, name: sameNameNearby.normalizedName, reason: 'proximity' });
       await PlaceModel.linkObject(sameNameNearby.id, objectId, 'mentioned_in_note');
       continue;
     }
@@ -106,7 +134,17 @@ async function resolveAndLinkPlace(
       createdBy: 'inferred',
     });
 
-    console.log(`[placeService] Created place ${place.id} "${place.normalizedName}" (confidence: ${place.confidence})`);
+    logLifecycle('PLACE_RESOLVED', {
+      objectId,
+      placeId: place.id,
+      name: place.normalizedName,
+      lat: place.lat,
+      lng: place.lng,
+      confidence: place.confidence,
+      threshold: GEOFENCE_CONFIDENCE_THRESHOLD,
+      willCreateGeofence: userConfirmed,
+    });
+    console.log(`[placeService] Created place ${place.id} "${place.normalizedName}" (confidence: ${place.confidence}, threshold: ${GEOFENCE_CONFIDENCE_THRESHOLD})`);
 
     // ─── 5. Link object to place ─────────────────────────────────────────────
     await PlaceModel.linkObject(place.id, objectId, 'mentioned_in_note');
@@ -115,7 +153,14 @@ async function resolveAndLinkPlace(
     if (userConfirmed) {
       await maybeCreateInferredGeofence(userId, place);
     } else {
-      console.log(`[placeService] Confidence too low (${resolved.confidence}) — skipping geofence for "${resolved.normalizedName}"`);
+      logLifecycle('GEOFENCE_SKIPPED_LOW_CONFIDENCE', {
+        objectId,
+        placeId: place.id,
+        name: resolved.normalizedName,
+        confidence: resolved.confidence,
+        threshold: GEOFENCE_CONFIDENCE_THRESHOLD,
+      });
+      console.log(`[placeService] Confidence ${resolved.confidence} < ${GEOFENCE_CONFIDENCE_THRESHOLD} — skipping geofence for "${resolved.normalizedName}"`);
     }
   }
 }
@@ -126,6 +171,12 @@ async function maybeCreateInferredGeofence(
 ): Promise<void> {
   const currentCount = await PlaceModel.countInferredGeofences(userId);
   if (currentCount >= MAX_INFERRED_GEOFENCES) {
+    logLifecycle('GEOFENCE_LIMIT_REACHED', {
+      placeId: place.id,
+      name: place.normalizedName,
+      currentCount,
+      max: MAX_INFERRED_GEOFENCES,
+    });
     console.log(`[placeService] Inferred geofence limit reached (${currentCount}/${MAX_INFERRED_GEOFENCES}) — place stored but not monitored: ${place.normalizedName}`);
     return;
   }
@@ -146,7 +197,15 @@ async function maybeCreateInferredGeofence(
       createdBy: 'inferred',
     });
 
-    console.log(`[placeService] Created inferred geofence ${geofence.id} for place "${place.normalizedName}"`);
+    logLifecycle('GEOFENCE_CREATED', {
+      geofenceId: geofence.id,
+      placeId: place.id,
+      name: place.normalizedName,
+      lat: place.lat,
+      lng: place.lng,
+      radius: place.radiusMeters,
+    });
+    console.log(`[placeService] Created inferred geofence ${geofence.id} for place "${place.normalizedName}" — client must re-sync`);
   } catch (err) {
     console.warn(`[placeService] Failed to create inferred geofence for "${place.normalizedName}":`, err);
   }

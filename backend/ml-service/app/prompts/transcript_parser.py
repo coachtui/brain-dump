@@ -81,6 +81,11 @@ OUTPUT FORMAT — return a JSON object with this EXACT structure:
   ]
 }
 
+LOCATION REMINDER RULES — CRITICAL:
+- Phrases like "when I get to", "when I arrive at", "at [place] remind me", "next time I'm at" → type="reminder", location_hints.geofence_candidate=true
+- Always list the destination place in location_hints.places AND entities
+- If no specific date is mentioned, set temporal_hints.has_date=false and temporal_hints.urgency="medium"
+
 FIELD RULES:
 - raw_text: take the actual words from the transcript; minimal editing
 - cleaned_text: remove "um", "uh", "like", "you know", false starts; fix clear speech errors; do NOT rewrite meaning; preserve local place names exactly
@@ -279,6 +284,64 @@ EXAMPLE_2_OUTPUT = """{
 }"""
 
 
+# ---------------------------------------------------------------------------
+# Few-shot example 3 — Location reminder ("when I get to X" pattern)
+# ---------------------------------------------------------------------------
+
+EXAMPLE_3_INPUT = """Remind me to get paper towels when I get to Costco. Also need to pick up a case of water."""
+
+EXAMPLE_3_OUTPUT = """{
+  "atomic_objects": [
+    {
+      "raw_text": "Remind me to get paper towels when I get to Costco",
+      "cleaned_text": "Get paper towels when I get to Costco",
+      "title": null,
+      "type": "reminder",
+      "domain": "personal",
+      "tags": ["shopping", "Costco", "paper towels", "errand"],
+      "entities": ["Costco"],
+      "confidence": 0.97,
+      "temporal_hints": {
+        "has_date": false,
+        "date_text": null,
+        "urgency": "medium"
+      },
+      "location_hints": {
+        "places": ["Costco"],
+        "geofence_candidate": true
+      },
+      "actionability": {
+        "is_actionable": true,
+        "next_action": "Buy paper towels at Costco"
+      }
+    },
+    {
+      "raw_text": "Also need to pick up a case of water",
+      "cleaned_text": "Pick up a case of water at Costco",
+      "title": null,
+      "type": "task",
+      "domain": "personal",
+      "tags": ["shopping", "Costco", "water", "errand"],
+      "entities": ["Costco"],
+      "confidence": 0.88,
+      "temporal_hints": {
+        "has_date": false,
+        "date_text": null,
+        "urgency": "low"
+      },
+      "location_hints": {
+        "places": ["Costco"],
+        "geofence_candidate": true
+      },
+      "actionability": {
+        "is_actionable": true,
+        "next_action": "Buy a case of water at Costco"
+      }
+    }
+  ]
+}"""
+
+
 def create_user_prompt(transcript: str, context: dict = None) -> str:
     """Create user prompt with transcript and optional context"""
     prompt = f"Parse this transcript:\n\n{transcript}\n\n"
@@ -322,5 +385,13 @@ def create_few_shot_examples() -> List[dict]:
         {
             "role": "assistant",
             "content": EXAMPLE_2_OUTPUT
+        },
+        {
+            "role": "user",
+            "content": f"Parse this transcript:\n\n{EXAMPLE_3_INPUT}\n\nReturn the parsed atomic objects as {{\"atomic_objects\": [...]}}."
+        },
+        {
+            "role": "assistant",
+            "content": EXAMPLE_3_OUTPUT
         },
     ]

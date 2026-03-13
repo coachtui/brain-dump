@@ -72,13 +72,34 @@ function pickRadius(result: NominatimResult): number {
   return RADIUS_BY_TYPE[key] ?? RADIUS_BY_TYPE.default;
 }
 
+// OSM types that represent named commercial/amenity locations — reliably geocoded
+const NAMED_PLACE_TYPES = new Set([
+  'shop', 'supermarket', 'amenity', 'building', 'pharmacy',
+  'restaurant', 'cafe', 'cinema', 'mall', 'fuel', 'bank',
+  'fast_food', 'convenience', 'department_store',
+]);
+
 function computeConfidence(
   result: NominatimResult,
   userLat?: number,
-  userLng?: number
+  userLng?: number,
+  queryName?: string
 ): number {
   // Base confidence from OSM importance score (0–1)
   let confidence = Math.min(result.importance ?? 0.5, 1.0) * 0.6 + 0.2;
+
+  // Boost for named commercial/amenity types — these are reliably identified by Nominatim
+  // and directly correspond to what the user said. Without this, Costco (importance ~0.3)
+  // would score only ~0.38, silently failing the geofence creation threshold.
+  const placeType = (result.type || result.class || '').toLowerCase();
+  if (NAMED_PLACE_TYPES.has(placeType)) {
+    confidence = Math.min(confidence + 0.25, 0.90);
+  }
+
+  // Boost if the result name exactly matches the query (case-insensitive) — strong signal
+  if (queryName && result.name && result.name.toLowerCase() === queryName.toLowerCase()) {
+    confidence = Math.min(confidence + 0.15, 0.95);
+  }
 
   // Boost if user location is available and result is nearby
   if (userLat !== undefined && userLng !== undefined) {
@@ -155,7 +176,7 @@ export async function resolvePlaceName(
 
     // Take the top result
     const top = results[0];
-    const confidence = computeConfidence(top, userLocation?.lat, userLocation?.lng);
+    const confidence = computeConfidence(top, userLocation?.lat, userLocation?.lng, placeName);
 
     const resolved: ResolvedPlace = {
       rawName: placeName,
@@ -231,7 +252,7 @@ export async function resolvePlaceNameMulti(
       lng: parseFloat(r.lon),
       radiusMeters: pickRadius(r),
       category: r.type || r.class || 'place',
-      confidence: computeConfidence(r, userLocation?.lat, userLocation?.lng),
+      confidence: computeConfidence(r, userLocation?.lat, userLocation?.lng, placeName),
     }));
 
     console.log(`[PlaceResolution] Multi-resolved "${placeName}" → ${resolved.length} result(s): ${resolved.map(r => r.normalizedName).join(', ')}`);

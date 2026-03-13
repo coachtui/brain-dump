@@ -74,6 +74,7 @@ import synthesisRoutes from './routes/synthesis';
 import placesRoutes from './routes/places';
 import dashboardRoutes from './routes/dashboard';
 import ideasRoutes from './routes/ideas';
+import diagnosticsRoutes from './routes/diagnostics';
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/objects', objectRoutes);
@@ -84,6 +85,7 @@ app.use('/api/v1/synthesis', synthesisRoutes);
 app.use('/api/v1/places', placesRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/ideas', ideasRoutes);
+app.use('/api/v1/diagnostics', diagnosticsRoutes);
 
 app.get('/api/v1', (req, res) => {
   res.json({

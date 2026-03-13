@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useDeepgramTranscription } from '../hooks/useDeepgramTranscription';
+import { useGeofences } from '../hooks/useGeofences';
 import { RootStackParamList } from '../navigation/types';
 import { AppScreen, AppHeader, Colors } from '../components/ui';
 import { locationService } from '../services/locationService';
@@ -36,10 +37,35 @@ export function RecordScreen({ navigation }: Props) {
     savedObjectIds,
     relatedNotes,
     contradictions,
+    hasGeofenceCandidates,
     startRecording,
     stopRecording,
     reset,
   } = useDeepgramTranscription();
+
+  const { fetchGeofences } = useGeofences();
+  const geofenceSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // After saving a note with location-triggered reminders, re-fetch geofences after a
+  // short delay. This allows the server's async place resolution + geofence creation to
+  // complete before the client syncs with the OS, ensuring the new geofence gets registered.
+  useEffect(() => {
+    if (hasGeofenceCandidates && status === 'done') {
+      console.log('[RecordScreen] Geofence candidates detected — scheduling re-sync in 6s');
+      if (geofenceSyncTimeoutRef.current) {
+        clearTimeout(geofenceSyncTimeoutRef.current);
+      }
+      geofenceSyncTimeoutRef.current = setTimeout(() => {
+        console.log('[RecordScreen] Re-fetching geofences to pick up inferred places');
+        fetchGeofences();
+      }, 6000);
+    }
+    return () => {
+      if (geofenceSyncTimeoutRef.current) {
+        clearTimeout(geofenceSyncTimeoutRef.current);
+      }
+    };
+  }, [hasGeofenceCandidates, status, fetchGeofences]);
 
   const isRecording = status === 'recording';
   const isConnecting = status === 'connecting';

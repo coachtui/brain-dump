@@ -13,6 +13,9 @@ interface TranscriptionState {
   savedObjectIds: string[];
   relatedNotes: RagSearchResult[];
   contradictions: ConflictItem[];
+  // True when the saved note had location-triggered reminders — signals the UI to
+  // re-fetch geofences after a brief delay so new server-side geofences are registered with the OS.
+  hasGeofenceCandidates: boolean;
 }
 
 interface UseDeepgramTranscriptionReturn extends TranscriptionState {
@@ -43,6 +46,7 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
     savedObjectIds: [],
     relatedNotes: [],
     contradictions: [],
+    hasGeofenceCandidates: false,
   });
 
   // Incremented on each new recording session so stale background calls don't update state
@@ -310,6 +314,7 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
           savedObjectIds: result.objectIds,
           relatedNotes: [],
           contradictions: [],
+          hasGeofenceCandidates: result.hasGeofenceCandidates ?? false,
         }));
 
         // ── Background: related notes ──────────────────────────────────
@@ -370,6 +375,7 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
       savedObjectIds: [],
       relatedNotes: [],
       contradictions: [],
+      hasGeofenceCandidates: false,
     });
     finalTranscriptRef.current = '';
     partialTranscriptRef.current = '';
