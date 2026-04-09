@@ -118,11 +118,11 @@ export function useDeepgramTranscription(): UseDeepgramTranscriptionReturn {
       console.log('[Recording] Deepgram token received, length:', token.length, '— keywords:', keywords.length);
 
       // ── 4. Deepgram WebSocket connection ───────────────────────────────
-      // Build keyword params for vocabulary biasing (Layer A)
+      // keyterm is the Nova-2 replacement for the deprecated keywords param (no boost suffix)
       const keywordParams = keywords.length > 0
-        ? '&' + keywords.map(k => `keywords=${encodeURIComponent(k)}`).join('&')
+        ? '&' + keywords.map(k => `keyterm=${encodeURIComponent(k)}`).join('&')
         : '';
-      const deepgramUrl = `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&punctuate=true&interim_results=true${keywordParams}`;
+      const deepgramUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate=16000&channels=1&punctuate=true&smart_format=true&interim_results=true&endpointing=500&filler_words=false${keywordParams}`;
       console.log('[Recording] connecting to Deepgram...');
       const ws = new WebSocket(deepgramUrl, ['token', token]);
       wsRef.current = ws;
