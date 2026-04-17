@@ -57,7 +57,7 @@ OUTPUT FORMAT — return a JSON object with this EXACT structure:
   "atomic_objects": [
     {
       "raw_text": "verbatim or near-verbatim excerpt from transcript",
-      "cleaned_text": "cleaned, normalized version (remove filler words, false starts, repetitions)",
+      "cleaned_text": "filler/false-starts removed only — do NOT rephrase or expand",
       "title": "Short title max 8 words — or null if cleaned_text is already short",
       "type": "task",
       "domain": "work",
@@ -76,7 +76,8 @@ OUTPUT FORMAT — return a JSON object with this EXACT structure:
       "actionability": {
         "is_actionable": true,
         "next_action": "Call supplier tomorrow to renegotiate"
-      }
+      },
+      "context_inherited_from": null
     }
   ]
 }
@@ -88,13 +89,15 @@ LOCATION REMINDER RULES — CRITICAL:
 
 FIELD RULES:
 - raw_text: take the actual words from the transcript; minimal editing
-- cleaned_text: remove "um", "uh", "like", "you know", false starts; fix clear speech errors; do NOT rewrite meaning; preserve local place names exactly
+- cleaned_text: STRICT RULES — (1) ONLY remove filler words ("um", "uh", "like", "you know"), false starts, and repetitions. (2) Do NOT rephrase, expand, infer, or add words not in the original. (3) Do NOT normalize field shorthand into full sentences — preserve the speaker's vocabulary exactly. (4) Preserve all local place names verbatim. If you cannot clean without rewriting, copy raw_text as-is.
 - title: only set if cleaned_text is longer than ~15 words; otherwise null
 - entities: only named things — people (first name is fine), specific places, specific companies/products; ALWAYS include local place names here
 - temporal_hints.urgency: infer from language — "ASAP"/"urgent"/"must"/"today" → high, "soon"/"this week" → medium, "eventually"/"someday" → low
 - location_hints.places: list ALL mentioned places, including streets, jobsites, neighborhoods
 - location_hints.geofence_candidate: true if the note could be triggered by arriving at or leaving a specific place (school, gym, home, office, store, jobsite, street corner, etc.)
 - actionability.next_action: the single clearest next physical action, stated cleanly
+- context_inherited_from: if this object's location/time/project context was inferred from an ADJACENT object (not stated explicitly), set this to that object's sequence_index (0-based). If context is self-contained, set null.
+- confidence: be honest — if you are guessing domain, type, or context, lower this score. Objects below 0.75 will be flagged for user review. Do not round up.
 
 RETURN ONLY VALID JSON. No markdown fences, no explanation, no prefix text."""
 
@@ -128,7 +131,8 @@ EXAMPLE_1_OUTPUT = """{
       "actionability": {
         "is_actionable": true,
         "next_action": "Call pump supplier tomorrow morning to renegotiate pricing"
-      }
+      },
+      "context_inherited_from": null
     },
     {
       "raw_text": "been thinking the app dashboard is too cluttered, maybe we should simplify the main view",
@@ -151,7 +155,8 @@ EXAMPLE_1_OUTPUT = """{
       "actionability": {
         "is_actionable": true,
         "next_action": "Sketch a simplified main view layout"
-      }
+      },
+      "context_inherited_from": null
     },
     {
       "raw_text": "I should remember to pick up Marcus from school at 3pm Thursday",
@@ -174,7 +179,8 @@ EXAMPLE_1_OUTPUT = """{
       "actionability": {
         "is_actionable": true,
         "next_action": "Pick up Marcus from school at 3pm Thursday"
-      }
+      },
+      "context_inherited_from": null
     }
   ]
 }"""
@@ -209,11 +215,12 @@ EXAMPLE_2_OUTPUT = """{
       "actionability": {
         "is_actionable": true,
         "next_action": "Deploy crew to clear drainage inlets from Middle Street to Puʻuhale"
-      }
+      },
+      "context_inherited_from": null
     },
     {
       "raw_text": "Need traffic control out there too",
-      "cleaned_text": "Set up traffic control at Middle Street to Puʻuhale work zone",
+      "cleaned_text": "Need traffic control out there too",
       "title": null,
       "type": "task",
       "domain": "work",
@@ -232,7 +239,8 @@ EXAMPLE_2_OUTPUT = """{
       "actionability": {
         "is_actionable": true,
         "next_action": "Arrange traffic control for work zone on Middle Street"
-      }
+      },
+      "context_inherited_from": 0
     },
     {
       "raw_text": "check on the vac truck at Sand Island, make sure it's ready for dewatering tomorrow morning",
@@ -255,7 +263,8 @@ EXAMPLE_2_OUTPUT = """{
       "actionability": {
         "is_actionable": true,
         "next_action": "Check vac truck at Sand Island and confirm dewatering readiness"
-      }
+      },
+      "context_inherited_from": null
     },
     {
       "raw_text": "Reminder for the punch list walk at Kapālama, that's Friday",
@@ -278,7 +287,8 @@ EXAMPLE_2_OUTPUT = """{
       "actionability": {
         "is_actionable": true,
         "next_action": "Attend punch list walk at Kapālama on Friday"
-      }
+      },
+      "context_inherited_from": null
     }
   ]
 }"""
@@ -313,11 +323,12 @@ EXAMPLE_3_OUTPUT = """{
       "actionability": {
         "is_actionable": true,
         "next_action": "Buy paper towels at Costco"
-      }
+      },
+      "context_inherited_from": null
     },
     {
       "raw_text": "Also need to pick up a case of water",
-      "cleaned_text": "Pick up a case of water at Costco",
+      "cleaned_text": "Also need to pick up a case of water",
       "title": null,
       "type": "task",
       "domain": "personal",
@@ -336,7 +347,8 @@ EXAMPLE_3_OUTPUT = """{
       "actionability": {
         "is_actionable": true,
         "next_action": "Buy a case of water at Costco"
-      }
+      },
+      "context_inherited_from": 0
     }
   ]
 }"""

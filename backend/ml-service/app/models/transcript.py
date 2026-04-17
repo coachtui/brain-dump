@@ -46,6 +46,11 @@ class AtomicObjectParsed(BaseModel):
     location_hints: LocationHints = Field(default_factory=LocationHints)
     actionability: Actionability = Field(default_factory=Actionability)
     sequence_index: int = Field(0, description="Position in transcript (set by parser after parsing)")
+    context_inherited_from: Optional[int] = Field(
+        None,
+        description="sequence_index of the adjacent object whose context was inherited, or null if self-contained"
+    )
+    needs_review: bool = Field(False, description="True when confidence < 0.75 — flagged for user review")
 
 
 class TranscriptParseRequest(BaseModel):
@@ -61,9 +66,25 @@ class TranscriptParseRequest(BaseModel):
     )
 
 
+class CorrectionFeedback(BaseModel):
+    """User correction for a parsed atomic object"""
+    session_id: str = Field(..., description="Voice session ID the object came from")
+    sequence_index: int = Field(..., description="sequence_index of the object being corrected")
+    field: Literal["type", "domain", "cleaned_text", "title", "tags", "actionability", "other"] = Field(
+        ..., description="Which field was wrong"
+    )
+    original_value: str = Field(..., description="What the parser produced")
+    corrected_value: str = Field(..., description="What the user says it should be")
+    note: Optional[str] = Field(None, description="Optional free-text comment from user")
+    user_id: str = Field(..., description="User who submitted the correction")
+    submitted_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class TranscriptParseResponse(BaseModel):
     """Response from transcript parsing"""
     atomic_objects: List[AtomicObjectParsed] = Field(..., description="Parsed atomic objects")
     summary: Optional[str] = Field(None, description="Overall summary of the transcript")
     processing_time: float = Field(..., description="Processing time in seconds")
     model_used: str = Field(..., description="LLM model used for parsing")
+    raw_transcript: Optional[str] = Field(None, description="Original transcript before cleaning")
+    needs_review_count: int = Field(0, description="Number of objects flagged for user review")

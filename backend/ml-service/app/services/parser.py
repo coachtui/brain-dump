@@ -68,8 +68,13 @@ class TranscriptParser:
         else:
             atomic_objects = await self._parse_with_openai(parse_request)
 
+        # Flag low-confidence objects for user review
+        for obj in atomic_objects:
+            if obj.confidence < 0.75:
+                obj.needs_review = True
+
         processing_time = time.time() - start_time
-        return atomic_objects, self.model, processing_time
+        return atomic_objects, self.model, processing_time, request.transcript
 
     async def _parse_with_openai(
         self,

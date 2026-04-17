@@ -21,16 +21,20 @@ async def parse_transcript(request: TranscriptParseRequest):
     try:
         parser = get_parser()
 
-        atomic_objects, model_used, processing_time = await parser.parse_transcript(request)
+        atomic_objects, model_used, processing_time, raw_transcript = await parser.parse_transcript(request)
 
-        # Generate summary (optional - could be done by LLM too)
+        needs_review_count = sum(1 for obj in atomic_objects if obj.needs_review)
         summary = f"Parsed {len(atomic_objects)} atomic object(s) from transcript"
+        if needs_review_count:
+            summary += f" — {needs_review_count} flagged for review"
 
         return TranscriptParseResponse(
             atomic_objects=atomic_objects,
             summary=summary,
             processing_time=processing_time,
-            model_used=model_used
+            model_used=model_used,
+            raw_transcript=raw_transcript,
+            needs_review_count=needs_review_count,
         )
 
     except ValueError as e:
